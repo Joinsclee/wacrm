@@ -22,7 +22,16 @@ WORKDIR /app
 # --- Dependencies -----------------------------------------------------------
 # Reproducible install straight from the lockfile. This layer is cached until
 # package.json or package-lock.json changes.
+#
+# npm is pinned to the version that generated package-lock.json. npm 10 and 11
+# compute different dependency trees for some transitive packages (the
+# @emnapi/* wasm helpers pulled in by Tailwind v4's oxide), so `npm ci` — which
+# is strict — only accepts a lockfile produced by a matching npm major.
+# node:22-alpine ships npm 10.x, while the committed lockfile is built with
+# npm 11.6.1; without this pin `npm ci` aborts with "packages ... not in sync".
+# If you regenerate the lockfile with a different npm, bump this to match.
 FROM base AS deps
+RUN npm i -g npm@11.6.1
 COPY package.json package-lock.json ./
 RUN npm ci
 
