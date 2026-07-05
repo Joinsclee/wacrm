@@ -62,6 +62,29 @@ const SECURITY_HEADERS = [
 
 const nextConfig: NextConfig = {
   /**
+   * Standalone output for Docker / self-hosted deploys (EasyPanel).
+   *
+   * `next build` emits `.next/standalone` — a minimal server bundle with
+   * only the traced `node_modules`, plus a `server.js` that replaces
+   * `next start`. The Dockerfile copies that folder (plus `.next/static`
+   * and `public`, which standalone does NOT bundle) into a slim runtime
+   * image. See docs/deploy-easypanel.md.
+   */
+  output: "standalone",
+
+  /**
+   * Pin the file-tracing root to this project.
+   *
+   * A `package-lock.json` living in a parent directory makes Next.js infer
+   * the wrong workspace root, so the standalone trace copies the wrong (or
+   * an incomplete) `node_modules` and `server.js` crashes at runtime with
+   * missing modules. `process.cwd()` is the project root during both a
+   * local `next build` and the Docker build (WORKDIR /app), which keeps
+   * the trace self-contained.
+   */
+  outputFileTracingRoot: process.cwd(),
+
+  /**
    * Cache-Control policy.
    *
    * Why this exists:
