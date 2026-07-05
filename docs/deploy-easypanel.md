@@ -63,11 +63,21 @@ que estar presentes al construir, no solo al arrancar.
 
 ## 3. Puerto y dominio
 
-- El contenedor escucha en el **puerto 3000** (`PORT=3000`, `HOSTNAME=0.0.0.0`
-  ya vienen fijados en el `Dockerfile`).
-- En la pestaña **Domains** del servicio, añade tu dominio y apunta el
-  **Port** a `3000`. EasyPanel gestiona el TLS (Let's Encrypt) y actúa como
-  reverse proxy — que es justo lo que Next.js recomienda para self-hosting.
+- El contenedor escucha en `$PORT` (por defecto **3000**; `HOSTNAME=0.0.0.0`
+  viene fijado en el `Dockerfile` para que el proxy pueda alcanzarlo). Si
+  defines `PORT` en la pestaña *Environment*, el servidor standalone respeta
+  ese valor — mira el log de arranque: `- Local: http://localhost:<PORT>`.
+- **El `Port` que apuntas en la pestaña Domains DEBE coincidir con ese
+  `<PORT>`.** Si no coinciden, EasyPanel muestra "deploy correcto" pero el
+  dominio nunca responde (o el contenedor se reinicia en bucle). Lo más simple:
+  no definas `PORT` (se queda en 3000) y apunta el dominio a `3000`.
+- EasyPanel gestiona el TLS (Let's Encrypt) y actúa como reverse proxy — que es
+  justo lo que Next.js recomienda para self-hosting.
+
+> **Sin `HEALTHCHECK` en el `Dockerfile` a propósito.** EasyPanel ya vigila la
+> salud vía su proxy HTTP. Un healthcheck de contenedor clavado a un puerto
+> fijo provoca un bucle de reinicios (Docker Swarm mata y reprograma la tarea)
+> si EasyPanel corre la app en otro `PORT` distinto al hardcodeado.
 
 ## 4. Cron de automatizaciones (opcional)
 

@@ -78,12 +78,18 @@ COPY --from=builder --chown=nextjs:nodejs /app/public ./public
 
 USER nextjs
 
+# The app listens on $PORT (default 3000) — EasyPanel may override it at
+# runtime, and the standalone server honours whatever value it gets. Make sure
+# the port EasyPanel's proxy forwards to matches this value. HOSTNAME=0.0.0.0
+# (set above) is required so the server binds all interfaces; binding to
+# localhost would leave it unreachable from the reverse proxy.
 EXPOSE 3000
 
-# Reports container health to Docker/EasyPanel. /login is public (no auth
-# redirect loop) so a 200 means the Node server is actually serving.
-HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
-  CMD wget --no-verbose --tries=1 --spider http://127.0.0.1:3000/login || exit 1
+# No Docker HEALTHCHECK on purpose. EasyPanel already health-checks the app
+# through its HTTP proxy. A container-level healthcheck pinned to a fixed port
+# fails — and makes Docker Swarm kill and reschedule the task in a restart
+# loop — whenever EasyPanel runs the app on a different PORT than the one
+# hardcoded here.
 
 # server.js is the minimal server emitted by output: "standalone".
 CMD ["node", "server.js"]
