@@ -17,6 +17,8 @@ interface DispatchArgs {
   configOwnerUserId: string
 }
 
+const TAG = '[ai auto-reply]'
+
 /**
  * AI auto-reply for a freshly-arrived inbound message.
  *
@@ -25,8 +27,16 @@ interface DispatchArgs {
  * runner's contract: it owns its try/catch and NEVER throws — a failing
  * or slow LLM call must not affect the webhook's 200 to Meta.
  *
- * Eligibility gates (any → silent no-op):
+ * Every early-exit path logs its reason under the `[ai auto-reply]`
+ * prefix. These gates used to `return` silently, which made "the bot
+ * didn't answer" impossible to diagnose from the logs — the one lever an
+ * operator has on a self-hosted box. The logs are cheap (one line per
+ * inbound) and scoped to a short conversation id so a support session
+ * can grep a single thread.
+ *
+ * Eligibility gates (any → logged no-op):
  *   - AI off / auto-reply disabled for the account
+ *   - an active message-level automation is handling replies
  *   - a human agent is assigned (they own the thread)
  *   - auto-reply was disabled for this conversation (prior handoff)
  *   - the per-conversation reply cap is reached
@@ -40,12 +50,21 @@ export async function dispatchInboundToAiReply(
   args: DispatchArgs,
 ): Promise<void> {
   const { accountId, conversationId, contactId, configOwnerUserId } = args
+  // Short id for readable, greppable per-thread logs.
+  const cid = conversationId.slice(0, 8)
 
   try {
     const db = supabaseAdmin()
 
     const config = await loadAiConfig(db, accountId)
-    if (!config || !config.autoReplyEnabled) return
+    if (!config) {
+      console.log(`${TAG} ${cid} skip: no AI config or master switch off`)
+      return
+    }
+    if (!config.autoReplyEnabled) {
+      console.log(`${TAG} ${cid} skip: auto_reply_enabled is off`)
+      return
+    }
 
     // Deterministic, user-configured responders win over the LLM — the
     // caller already excludes messages a Flow consumed. Message-level
@@ -62,22 +81,48 @@ export async function dispatchInboundToAiReply(
       .eq('is_active', true)
       .in('trigger_type', ['new_message_received', 'keyword_match'])
       .limit(1)
-    if (autoResponders && autoResponders.length > 0) return
+    if (autoResponders && autoResponders.length > 0) {
+      console.log(
+        `${TAG} ${cid} skip: an active message automation is handling replies (standing down to avoid double-texting)`,
+      )
+      return
+    }
 
     const { data: conv, error: convErr } = await db
       .from('conversations')
       .select('assigned_agent_id, ai_autoreply_disabled, ai_reply_count')
       .eq('id', conversationId)
       .maybeSingle()
-    if (convErr || !conv) return
-    if (conv.assigned_agent_id) return // a human owns this thread
-    if (conv.ai_autoreply_disabled) return // handed off / turned off here
+    if (convErr || !conv) {
+      console.warn(
+        `${TAG} ${cid} skip: conversation not found${convErr ? ` (${convErr.message})` : ''}`,
+      )
+      return
+    }
+    if (conv.assigned_agent_id) {
+      console.log(`${TAG} ${cid} skip: a human agent is assigned to this thread`)
+      return
+    }
+    if (conv.ai_autoreply_disabled) {
+      console.log(
+        `${TAG} ${cid} skip: auto-reply disabled on this conversation (prior handoff/opt-out)`,
+      )
+      return
+    }
     // Cheap early-out; the authoritative cap check is the atomic claim
     // below (this read can race a concurrent inbound).
-    if (conv.ai_reply_count >= config.autoReplyMaxPerConversation) return
+    if (conv.ai_reply_count >= config.autoReplyMaxPerConversation) {
+      console.log(
+        `${TAG} ${cid} skip: reply cap reached (${conv.ai_reply_count}/${config.autoReplyMaxPerConversation})`,
+      )
+      return
+    }
 
     const messages = await buildConversationContext(db, conversationId)
-    if (messages.length === 0) return
+    if (messages.length === 0) {
+      console.warn(`${TAG} ${cid} skip: no text messages to build context from`)
+      return
+    }
 
     // Ground the reply in the account's knowledge base (best-effort).
     const knowledge = await retrieveKnowledge(
@@ -103,6 +148,9 @@ export async function dispatchInboundToAiReply(
       // The model can't (or shouldn't) answer — stop auto-replying on
       // this thread and leave the inbound unanswered so it surfaces in
       // the inbox for a human. Sticky until an admin re-enables.
+      console.log(
+        `${TAG} ${cid} ${handoff ? 'model requested handoff' : 'model returned empty text'} → disabling auto-reply on this conversation and leaving it for a human`,
+      )
       await db
         .from('conversations')
         .update({ ai_autoreply_disabled: true })
@@ -122,7 +170,12 @@ export async function dispatchInboundToAiReply(
         max_replies: config.autoReplyMaxPerConversation,
       },
     )
-    if (claimErr || claimed !== true) return
+    if (claimErr || claimed !== true) {
+      console.log(
+        `${TAG} ${cid} skip: could not claim a reply slot${claimErr ? ` (${claimErr.message})` : ' (cap hit by a concurrent inbound)'}`,
+      )
+      return
+    }
 
     await engineSendText({
       accountId,
@@ -131,7 +184,8 @@ export async function dispatchInboundToAiReply(
       contactId,
       text,
     })
+    console.log(`${TAG} ${cid} sent ✓`)
   } catch (err) {
-    console.error('[ai auto-reply] dispatch failed:', err)
+    console.error(`${TAG} ${cid} dispatch failed:`, err)
   }
 }

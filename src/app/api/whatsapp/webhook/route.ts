@@ -745,6 +745,13 @@ async function processMessage(
             meta_message_id: message.id,
           },
     isFirstInboundMessage,
+  }).catch((err) => {
+    // The runner is supposed to own its errors, but if it ever throws we
+    // must NOT let it kill the rest of the after() block — automations
+    // and the AI auto-reply run after this point. Treat a thrown runner
+    // as "did not consume" so the fallback responders still get a turn.
+    console.error('[webhook] flow runner threw — continuing to automations/AI:', err)
+    return { consumed: false }
   })
   const flowConsumed = flowResult.consumed
 
@@ -791,12 +798,25 @@ async function processMessage(
   // the webhook dispatch below); `dispatchInboundToAiReply` owns its
   // eligibility gates + try/catch and never throws.
   if (!flowConsumed && !interactiveReplyId && inboundText.trim()) {
+    // Log the entry point so an operator can confirm from the container
+    // logs that the webhook's after() block actually reaches the AI step
+    // (the historical failure mode was the block never completing on a
+    // restarting container). The per-gate reasons are logged inside
+    // dispatchInboundToAiReply.
+    console.log(
+      `[webhook] ${conversation.id.slice(0, 8)} handing inbound to AI auto-reply`,
+    )
     await dispatchInboundToAiReply({
       accountId,
       conversationId: conversation.id,
       contactId: contactRecord.id,
       configOwnerUserId,
     })
+  } else {
+    console.log(
+      `[webhook] ${conversation.id.slice(0, 8)} AI auto-reply not attempted ` +
+        `(flowConsumed=${flowConsumed}, interactive=${!!interactiveReplyId}, hasText=${!!inboundText.trim()})`,
+    )
   }
 
   // message.received webhook (public API). Awaited — not fire-and-forget
