@@ -153,6 +153,10 @@ export interface Conversation {
   contact_id: string;
   status: ConversationStatus;
   assigned_agent_id?: string;
+  /** When true, the AI auto-reply is muted for this conversation and a
+   *  human owns the thread (also set by a model handoff). Toggled from
+   *  the thread header. */
+  ai_autoreply_disabled?: boolean;
   last_message_text?: string;
   last_message_at?: string;
   unread_count: number;

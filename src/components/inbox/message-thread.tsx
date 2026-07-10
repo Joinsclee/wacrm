@@ -26,6 +26,7 @@ import {
   RefreshCw,
   PanelRightOpen,
   PanelRightClose,
+  Bot,
 } from "lucide-react";
 import { format, isToday, isYesterday, differenceInHours } from "date-fns";
 import { Badge } from "@/components/ui/badge";
@@ -74,6 +75,13 @@ interface MessageThreadProps {
     conversationId: string,
     assignedAgentId: string | null,
   ) => void;
+  /**
+   * Toggle whether the AI auto-reply handles this conversation. When
+   * `disabled` is true the bot stays quiet and a human owns the thread
+   * (this is also what a model handoff sets). The header button flips it;
+   * the parent syncs its local copy so the label updates instantly.
+   */
+  onAiAutoreplyChange: (conversationId: string, disabled: boolean) => void;
   /**
    * On mobile, the thread is shown full-screen with the conversation list
    * hidden. This callback lets the page deselect the active conversation
@@ -159,6 +167,7 @@ export function MessageThread({
   onUpdateMessage,
   onStatusChange,
   onAssignChange,
+  onAiAutoreplyChange,
   onBack,
   resyncToken = 0,
   onRefresh,
@@ -576,6 +585,21 @@ export function MessageThread({
     [conversation, onStatusChange]
   );
 
+  const handleAiToggle = useCallback(async () => {
+    if (!conversation) return;
+    // `ai_autoreply_disabled === true` means the bot is muted and a human
+    // owns the thread. The button flips it — and it's the way to hand a
+    // conversation back to the AI after a model handoff muted it.
+    const nextDisabled = !conversation.ai_autoreply_disabled;
+    const supabase = createClient();
+    await supabase
+      .from("conversations")
+      .update({ ai_autoreply_disabled: nextDisabled })
+      .eq("id", conversation.id);
+
+    onAiAutoreplyChange(conversation.id, nextDisabled);
+  }, [conversation, onAiAutoreplyChange]);
+
   const handleOpenTemplates = useCallback(() => {
     setTemplateModalOpen(true);
   }, []);
@@ -904,6 +928,32 @@ export function MessageThread({
               />
             </button>
           )}
+
+          {/* AI vs human toggle. When the bot is muted
+              (`ai_autoreply_disabled`) a human owns the thread — which is
+              also what a model handoff sets — so this button is how an
+              agent hands the conversation back to the AI, or takes it over. */}
+          <button
+            type="button"
+            onClick={handleAiToggle}
+            aria-pressed={!conversation?.ai_autoreply_disabled}
+            title={
+              conversation?.ai_autoreply_disabled
+                ? "Respondes tú (IA en pausa). Clic para que responda la IA."
+                : "Responde la IA. Clic para pausarla y responder tú."
+            }
+            className={cn(
+              "inline-flex items-center justify-center h-7 gap-1 px-2 text-xs rounded-md transition-colors hover:bg-muted",
+              conversation?.ai_autoreply_disabled
+                ? "text-muted-foreground"
+                : "text-primary",
+            )}
+          >
+            <Bot className="h-3.5 w-3.5" />
+            <span className="hidden sm:inline">
+              {conversation?.ai_autoreply_disabled ? "Humano" : "IA"}
+            </span>
+          </button>
 
           {/* Status dropdown */}
           <DropdownMenu>
