@@ -30,7 +30,7 @@ export async function GET() {
       // `api_key` is selected only to derive `has_key` — it is stripped
       // out below and never returned to the client.
       .select(
-        'provider, model, system_prompt, is_active, auto_reply_enabled, auto_reply_max_per_conversation, api_key, embeddings_api_key',
+        'provider, model, system_prompt, agent_name, setter_prompt, closer_prompt, is_active, auto_reply_enabled, auto_reply_max_per_conversation, api_key, embeddings_api_key',
       )
       .eq('account_id', accountId)
       .maybeSingle()
@@ -87,6 +87,21 @@ export async function POST(request: Request) {
     const systemPrompt =
       typeof body.system_prompt === 'string' && body.system_prompt.trim()
         ? body.system_prompt.trim()
+        : null
+    // Phase 1 setter/closer: persona name + per-mode instructions. All
+    // optional — a blank field is stored as null and the engine falls
+    // back to the generic business context.
+    const agentName =
+      typeof body.agent_name === 'string' && body.agent_name.trim()
+        ? body.agent_name.trim()
+        : null
+    const setterPrompt =
+      typeof body.setter_prompt === 'string' && body.setter_prompt.trim()
+        ? body.setter_prompt.trim()
+        : null
+    const closerPrompt =
+      typeof body.closer_prompt === 'string' && body.closer_prompt.trim()
+        ? body.closer_prompt.trim()
         : null
     const isActive = body.is_active === true
     const autoReplyEnabled = body.auto_reply_enabled === true
@@ -182,6 +197,9 @@ export async function POST(request: Request) {
       provider,
       model,
       system_prompt: systemPrompt,
+      agent_name: agentName,
+      setter_prompt: setterPrompt,
+      closer_prompt: closerPrompt,
       is_active: isActive,
       auto_reply_enabled: autoReplyEnabled,
       auto_reply_max_per_conversation: maxPer,

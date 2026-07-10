@@ -18,6 +18,13 @@ export interface AiConfig {
   model: string
   apiKey: string
   systemPrompt: string | null
+  /** Phase 1 setter/closer: agent persona name + per-mode instructions.
+   *  Optional/null when the account hasn't set them — `buildSystemPrompt`
+   *  then falls back to the generic single-prompt behaviour. Optional so
+   *  the key-test paths that synthesize a minimal config stay valid. */
+  agentName?: string | null
+  setterPrompt?: string | null
+  closerPrompt?: string | null
   isActive: boolean
   autoReplyEnabled: boolean
   autoReplyMaxPerConversation: number
@@ -35,10 +42,13 @@ export interface ChatMessage {
 
 /** Outcome of a generation call. */
 export interface GenerateResult {
-  /** The reply text, with any handoff sentinel stripped. */
+  /** The reply text, with any control sentinels stripped. */
   text: string
   /** True when the model asked to hand off to a human (auto-reply mode). */
   handoff: boolean
+  /** True when the setter judged the lead qualified — the auto-reply
+   *  engine promotes the conversation to 'closer' mode. */
+  qualified: boolean
 }
 
 /**

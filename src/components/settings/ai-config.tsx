@@ -61,6 +61,9 @@ export function AiConfig() {
   const [embeddingsKeyEdited, setEmbeddingsKeyEdited] = useState(false);
   const [hasStoredEmbeddingsKey, setHasStoredEmbeddingsKey] = useState(false);
   const [systemPrompt, setSystemPrompt] = useState('');
+  const [agentName, setAgentName] = useState('');
+  const [setterPrompt, setSetterPrompt] = useState('');
+  const [closerPrompt, setCloserPrompt] = useState('');
   const [isActive, setIsActive] = useState(false);
   const [autoReplyEnabled, setAutoReplyEnabled] = useState(false);
   const [maxPerConversation, setMaxPerConversation] = useState(3);
@@ -85,6 +88,9 @@ export function AiConfig() {
         setProvider(data.provider);
         setModel(data.model);
         setSystemPrompt(data.system_prompt ?? '');
+        setAgentName(data.agent_name ?? '');
+        setSetterPrompt(data.setter_prompt ?? '');
+        setCloserPrompt(data.closer_prompt ?? '');
         setIsActive(data.is_active);
         setAutoReplyEnabled(data.auto_reply_enabled);
         setMaxPerConversation(data.auto_reply_max_per_conversation ?? 3);
@@ -131,6 +137,9 @@ export function AiConfig() {
     api_key: keyPayload(),
     embeddings_api_key: embeddingsKeyPayload(),
     system_prompt: systemPrompt.trim() || null,
+    agent_name: agentName.trim() || null,
+    setter_prompt: setterPrompt.trim() || null,
+    closer_prompt: closerPrompt.trim() || null,
     is_active: isActive,
     auto_reply_enabled: autoReplyEnabled,
     auto_reply_max_per_conversation: maxPerConversation,
@@ -201,6 +210,9 @@ export function AiConfig() {
         setIsActive(false);
         setAutoReplyEnabled(false);
         setSystemPrompt('');
+        setAgentName('');
+        setSetterPrompt('');
+        setCloserPrompt('');
       } else {
         const data = await res.json();
         toast.error(data.error ?? 'Failed to remove.');
@@ -442,6 +454,61 @@ export function AiConfig() {
                 }
                 disabled={disabled || !autoReplyEnabled}
                 className="w-20"
+              />
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Setter &amp; Closer modes</CardTitle>
+            <CardDescription>
+              In auto-reply the bot starts as a <strong>setter</strong> (engage
+              &amp; qualify) and switches to <strong>closer</strong> once the lead
+              is qualified. Both fields are optional — leave blank to just use the
+              business context above.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="ai-agent-name">
+                Agent name{' '}
+                <span className="font-normal text-muted-foreground">
+                  (optional)
+                </span>
+              </Label>
+              <Input
+                id="ai-agent-name"
+                value={agentName}
+                onChange={(e) => setAgentName(e.target.value)}
+                placeholder="e.g. Sofía"
+                disabled={disabled}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="ai-setter">
+                Setter instructions (engage &amp; qualify)
+              </Label>
+              <Textarea
+                id="ai-setter"
+                value={setterPrompt}
+                onChange={(e) => setSetterPrompt(e.target.value)}
+                placeholder="Greet warmly, ask what they need, guide toward booking a call. Never give up on a thin reply."
+                rows={4}
+                disabled={disabled}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="ai-closer">
+                Closer instructions (once qualified)
+              </Label>
+              <Textarea
+                id="ai-closer"
+                value={closerPrompt}
+                onChange={(e) => setCloserPrompt(e.target.value)}
+                placeholder="Handle objections, confirm the call time, be direct and confident — never pushy."
+                rows={4}
+                disabled={disabled}
               />
             </div>
           </CardContent>

@@ -1,5 +1,5 @@
 import { AiError, type AiConfig, type ChatMessage, type GenerateResult } from './types'
-import { HANDOFF_SENTINEL, aiRequestTimeoutMs } from './defaults'
+import { HANDOFF_SENTINEL, QUALIFIED_SENTINEL, aiRequestTimeoutMs } from './defaults'
 import { generateOpenAi } from './providers/openai'
 import { generateAnthropic } from './providers/anthropic'
 
@@ -52,6 +52,12 @@ export async function generateReply(args: GenerateArgs): Promise<GenerateResult>
  */
 export function parseGeneration(raw: string): GenerateResult {
   const handoff = raw.includes(HANDOFF_SENTINEL)
-  const text = raw.split(HANDOFF_SENTINEL).join('').trim()
-  return { text, handoff }
+  const qualified = raw.includes(QUALIFIED_SENTINEL)
+  const text = raw
+    .split(HANDOFF_SENTINEL)
+    .join('')
+    .split(QUALIFIED_SENTINEL)
+    .join('')
+    .trim()
+  return { text, handoff, qualified }
 }

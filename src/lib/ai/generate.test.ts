@@ -42,14 +42,28 @@ describe('parseGeneration', () => {
     expect(parseGeneration('Hello there')).toEqual({
       text: 'Hello there',
       handoff: false,
+      qualified: false,
     })
   })
 
   it('detects + strips the handoff sentinel', () => {
-    expect(parseGeneration('[[HANDOFF]]')).toEqual({ text: '', handoff: true })
+    expect(parseGeneration('[[HANDOFF]]')).toEqual({
+      text: '',
+      handoff: true,
+      qualified: false,
+    })
     expect(parseGeneration('Let me get a human [[HANDOFF]]')).toEqual({
       text: 'Let me get a human',
       handoff: true,
+      qualified: false,
+    })
+  })
+
+  it('detects + strips the qualified sentinel', () => {
+    expect(parseGeneration('Perfect, let me book you in [[QUALIFIED]]')).toEqual({
+      text: 'Perfect, let me book you in',
+      handoff: false,
+      qualified: true,
     })
   })
 })
@@ -69,7 +83,7 @@ describe('generateReply — OpenAI', () => {
       messages: [{ role: 'user', content: 'Hi' }],
     })
 
-    expect(res).toEqual({ text: 'Sure — happy to help!', handoff: false })
+    expect(res).toEqual({ text: 'Sure — happy to help!', handoff: false, qualified: false })
     const [url, opts] = fetchMock.mock.calls[0]
     expect(url).toContain('api.openai.com')
     expect(opts.headers.Authorization).toBe('Bearer sk-test')
@@ -120,7 +134,7 @@ describe('generateReply — Anthropic', () => {
       messages: [{ role: 'user', content: 'Hello' }],
     })
 
-    expect(res).toEqual({ text: 'Hi there!', handoff: false })
+    expect(res).toEqual({ text: 'Hi there!', handoff: false, qualified: false })
     const [url, opts] = fetchMock.mock.calls[0]
     expect(url).toContain('api.anthropic.com')
     expect(opts.headers['x-api-key']).toBe('sk-ant-x')

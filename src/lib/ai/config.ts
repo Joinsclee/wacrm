@@ -7,6 +7,9 @@ interface AiConfigRow {
   model: string
   api_key: string
   system_prompt: string | null
+  agent_name: string | null
+  setter_prompt: string | null
+  closer_prompt: string | null
   is_active: boolean
   auto_reply_enabled: boolean
   auto_reply_max_per_conversation: number
@@ -14,7 +17,7 @@ interface AiConfigRow {
 }
 
 const CONFIG_COLUMNS =
-  'provider, model, api_key, system_prompt, is_active, auto_reply_enabled, auto_reply_max_per_conversation, embeddings_api_key'
+  'provider, model, api_key, system_prompt, agent_name, setter_prompt, closer_prompt, is_active, auto_reply_enabled, auto_reply_max_per_conversation, embeddings_api_key'
 
 /**
  * Load and decrypt the account's AI config for *use* (draft or
@@ -73,6 +76,9 @@ export async function loadAiConfig(
     model: row.model,
     apiKey: decrypt(row.api_key),
     systemPrompt: row.system_prompt,
+    agentName: row.agent_name,
+    setterPrompt: row.setter_prompt,
+    closerPrompt: row.closer_prompt,
     isActive: row.is_active,
     autoReplyEnabled: row.auto_reply_enabled,
     autoReplyMaxPerConversation: row.auto_reply_max_per_conversation,

@@ -3,7 +3,7 @@ import { loadAiConfig } from './config'
 import { buildConversationContext } from './context'
 import { retrieveKnowledge } from './knowledge'
 import { generateReply } from './generate'
-import { buildSystemPrompt } from './defaults'
+import { buildSystemPrompt, type AgentStage } from './defaults'
 import { latestUserMessage } from './query'
 import { engineSendText } from '@/lib/flows/meta-send'
 
@@ -90,7 +90,7 @@ export async function dispatchInboundToAiReply(
 
     const { data: conv, error: convErr } = await db
       .from('conversations')
-      .select('assigned_agent_id, ai_autoreply_disabled, ai_reply_count')
+      .select('assigned_agent_id, ai_autoreply_disabled, ai_reply_count, ai_stage')
       .eq('id', conversationId)
       .maybeSingle()
     if (convErr || !conv) {
@@ -132,13 +132,21 @@ export async function dispatchInboundToAiReply(
       latestUserMessage(messages),
     )
 
+    // Phase 1 setter/closer: pick the mode from the conversation's stage
+    // (defaults to setter) and feed the persona + per-mode instructions.
+    const stage: AgentStage = conv.ai_stage === 'closer' ? 'closer' : 'setter'
+
     const systemPrompt = buildSystemPrompt({
       userPrompt: config.systemPrompt,
       mode: 'auto_reply',
       knowledge,
+      agentName: config.agentName,
+      stage,
+      setterPrompt: config.setterPrompt,
+      closerPrompt: config.closerPrompt,
     })
 
-    const { text, handoff } = await generateReply({
+    const { text, handoff, qualified } = await generateReply({
       config,
       systemPrompt,
       messages,
@@ -184,7 +192,22 @@ export async function dispatchInboundToAiReply(
       contactId,
       text,
     })
-    console.log(`${TAG} ${cid} sent ✓`)
+    console.log(`${TAG} ${cid} sent ✓ (stage: ${stage})`)
+
+    // Phase 1: the setter flagged the lead as qualified — promote this
+    // conversation to closer mode so the NEXT reply closes. Best-effort;
+    // a failure just means the next turn stays in setter mode.
+    if (qualified && stage === 'setter') {
+      const { error: stageErr } = await db
+        .from('conversations')
+        .update({ ai_stage: 'closer' })
+        .eq('id', conversationId)
+      if (stageErr) {
+        console.warn(`${TAG} ${cid} could not promote to closer: ${stageErr.message}`)
+      } else {
+        console.log(`${TAG} ${cid} lead qualified → promoted to closer mode`)
+      }
+    }
   } catch (err) {
     console.error(`${TAG} ${cid} dispatch failed:`, err)
   }
