@@ -3,6 +3,7 @@ import {
   sendInteractiveList,
   sendMediaMessage,
   sendTextMessage,
+  sendTypingIndicator,
   type InteractiveButton,
   type InteractiveListSection,
   type MediaKind,
@@ -142,6 +143,33 @@ export async function engineSendText(
     .eq('id', args.conversationId)
 
   return { whatsapp_message_id: waMessageId }
+}
+
+/**
+ * Show a "typing…" indicator (+ blue read receipt) to the customer for
+ * an inbound message. Resolves the account's WhatsApp config like the
+ * other engine senders, but needs no contact/phone — the typing call
+ * keys off the inbound wamid. Cosmetic by contract: callers must treat
+ * a failure as non-fatal and never let it block the actual reply.
+ */
+export async function engineSendTypingIndicator(args: {
+  accountId: string
+  messageId: string
+}): Promise<void> {
+  const db = supabaseAdmin()
+  const { data: config, error: configErr } = await db
+    .from('whatsapp_config')
+    .select('phone_number_id, access_token')
+    .eq('account_id', args.accountId)
+    .single()
+  if (configErr || !config) {
+    throw new Error('WhatsApp not configured for this account')
+  }
+  await sendTypingIndicator({
+    phoneNumberId: config.phone_number_id,
+    accessToken: decrypt(config.access_token),
+    messageId: args.messageId,
+  })
 }
 
 interface SendMediaEngineArgs {

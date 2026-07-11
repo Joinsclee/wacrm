@@ -5,7 +5,7 @@ import { retrieveKnowledge } from './knowledge'
 import { generateReply } from './generate'
 import { buildSystemPrompt, type AgentStage } from './defaults'
 import { latestUserMessage } from './query'
-import { engineSendText } from '@/lib/flows/meta-send'
+import { engineSendText, engineSendTypingIndicator } from '@/lib/flows/meta-send'
 
 interface DispatchArgs {
   /** Tenancy key — drives config, contact, and whatsapp_config lookups. */
@@ -15,6 +15,10 @@ interface DispatchArgs {
   /** The account's WhatsApp config owner, used for the outbound send's
    *  audit columns (mirrors how the flow runner passes it through). */
   configOwnerUserId: string
+  /** Inbound message wamid — used to show a "typing…" indicator (+ read
+   *  receipt) to the customer while the model generates. Optional so
+   *  non-webhook callers can omit it. */
+  inboundMessageId?: string
 }
 
 const TAG = '[ai auto-reply]'
@@ -49,7 +53,7 @@ const TAG = '[ai auto-reply]'
 export async function dispatchInboundToAiReply(
   args: DispatchArgs,
 ): Promise<void> {
-  const { accountId, conversationId, contactId, configOwnerUserId } = args
+  const { accountId, conversationId, contactId, configOwnerUserId, inboundMessageId } = args
   // Short id for readable, greppable per-thread logs.
   const cid = conversationId.slice(0, 8)
 
@@ -116,6 +120,18 @@ export async function dispatchInboundToAiReply(
         `${TAG} ${cid} skip: reply cap reached (${conv.ai_reply_count}/${config.autoReplyMaxPerConversation})`,
       )
       return
+    }
+
+    // Show a "typing…" bubble to the customer (and mark their message
+    // read) while we build context + call the model — makes the bot feel
+    // human. Cosmetic and best-effort: awaited so it fires inside the
+    // webhook's after(), but a failure must never block the reply.
+    if (inboundMessageId) {
+      try {
+        await engineSendTypingIndicator({ accountId, messageId: inboundMessageId })
+      } catch (err) {
+        console.warn(`${TAG} ${cid} typing indicator failed (non-fatal):`, err)
+      }
     }
 
     const messages = await buildConversationContext(db, conversationId)

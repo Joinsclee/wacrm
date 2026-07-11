@@ -259,6 +259,37 @@ export async function sendTextMessage(
   return { messageId: data.messages[0].id }
 }
 
+/**
+ * Mark an inbound message as read AND show a "typing…" indicator to the
+ * customer — a single call does both. WhatsApp shows the blue read
+ * receipt plus a typing bubble that clears when we send our reply or
+ * after ~25 seconds, whichever comes first. `messageId` is the inbound
+ * wamid from the webhook. Used to make the AI reply feel human.
+ */
+export async function sendTypingIndicator(args: {
+  phoneNumberId: string
+  accessToken: string
+  messageId: string
+}): Promise<void> {
+  const url = `${META_API_BASE}/${args.phoneNumberId}/messages`
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${args.accessToken}`,
+    },
+    body: JSON.stringify({
+      messaging_product: 'whatsapp',
+      status: 'read',
+      message_id: args.messageId,
+      typing_indicator: { type: 'text' },
+    }),
+  })
+  if (!response.ok) {
+    await throwMetaError(response, `Meta API error: ${response.status}`)
+  }
+}
+
 export type MediaKind = 'image' | 'video' | 'document' | 'audio'
 
 export interface SendMediaMessageArgs {
