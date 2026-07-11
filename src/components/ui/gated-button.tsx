@@ -24,7 +24,7 @@
 // The minor problem it also solves:
 //
 //   Five list pages had near-identical
-//   `READ_ONLY_TITLE = "Read-only — your role can't ..."`
+//   `READ_ONLY_TITLE = "Solo lectura — tu rol no puede ..."`
 //   constants. GatedButton takes a single `gateReason` prop
 //   and centralises the tooltip wording (with per-action
 //   defaults).
@@ -56,7 +56,7 @@ interface GatedButtonProps extends Omit<ComponentProps<typeof Button>, "title"> 
    *  without the prop is just a Button. */
   canAct?: boolean;
   /** Verb phrase that completes the sentence
-   *  `"Read-only — your role can't <gateReason>"`. Provided
+   *  `"Solo lectura — tu rol no puede <gateReason>"`. Provided
    *  per-call so each CTA can name what it does ("create flows",
    *  "send messages", "add contacts"). */
   gateReason?: string;
@@ -76,7 +76,7 @@ export function GatedButton({
 }: GatedButtonProps) {
   const effectivelyDisabled = disabled || !canAct;
   const tooltip = !canAct && gateReason
-    ? `Read-only — your role can't ${gateReason}`
+    ? `Solo lectura — tu rol no puede ${gateReason}`
     : title;
 
   return (

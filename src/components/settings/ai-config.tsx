@@ -80,7 +80,7 @@ export function AiConfig() {
       const res = await fetch('/api/ai/config');
       const data = await res.json();
       if (!res.ok) {
-        toast.error(data.error ?? 'Failed to load AI configuration');
+        toast.error(data.error ?? 'No se pudo cargar la configuración de IA');
         return;
       }
       if (data.configured) {
@@ -102,7 +102,7 @@ export function AiConfig() {
         setEmbeddingsKeyEdited(false);
       }
     } catch {
-      toast.error('Failed to load AI configuration');
+      toast.error('No se pudo cargar la configuración de IA');
     } finally {
       setLoading(false);
     }
@@ -158,10 +158,10 @@ export function AiConfig() {
         }),
       });
       const data = await res.json();
-      if (res.ok) toast.success('Key works — the provider responded.');
-      else toast.error(data.error ?? 'The provider rejected the request.');
+      if (res.ok) toast.success('La clave funciona — el proveedor respondió.');
+      else toast.error(data.error ?? 'El proveedor rechazó la solicitud.');
     } catch {
-      toast.error('Could not reach the provider.');
+      toast.error('No se pudo conectar con el proveedor.');
     } finally {
       setTesting(false);
     }
@@ -169,11 +169,11 @@ export function AiConfig() {
 
   const handleSave = async () => {
     if (!model.trim()) {
-      toast.error('Enter a model name.');
+      toast.error('Ingresa un nombre de modelo.');
       return;
     }
     if (!configured && !keyEdited) {
-      toast.error('Enter your API key.');
+      toast.error('Ingresa tu clave de API.');
       return;
     }
     setSaving(true);
@@ -185,13 +185,13 @@ export function AiConfig() {
       });
       const data = await res.json();
       if (res.ok) {
-        toast.success('AI assistant saved.');
+        toast.success('Asistente IA guardado.');
         await fetchConfig();
       } else {
-        toast.error(data.error ?? 'Failed to save.');
+        toast.error(data.error ?? 'No se pudo guardar.');
       }
     } catch {
-      toast.error('Failed to save.');
+      toast.error('No se pudo guardar.');
     } finally {
       setSaving(false);
     }
@@ -202,7 +202,7 @@ export function AiConfig() {
     try {
       const res = await fetch('/api/ai/config', { method: 'DELETE' });
       if (res.ok) {
-        toast.success('AI configuration removed.');
+        toast.success('Configuración de IA eliminada.');
         setConfigured(false);
         setHasStoredKey(false);
         setApiKey('');
@@ -215,10 +215,10 @@ export function AiConfig() {
         setCloserPrompt('');
       } else {
         const data = await res.json();
-        toast.error(data.error ?? 'Failed to remove.');
+        toast.error(data.error ?? 'No se pudo eliminar.');
       }
     } catch {
-      toast.error('Failed to remove.');
+      toast.error('No se pudo eliminar.');
     } finally {
       setRemoving(false);
     }
@@ -227,7 +227,7 @@ export function AiConfig() {
   if (loading || profileLoading) {
     return (
       <div className="flex items-center justify-center py-16 text-muted-foreground">
-        <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Loading…
+        <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Cargando…
       </div>
     );
   }
@@ -237,13 +237,13 @@ export function AiConfig() {
   return (
     <div>
       <SettingsPanelHead
-        title="Agent setup"
-        description="Bring your own OpenAI or Anthropic key. wacrm calls the provider directly with your key — no per-seat AI fees, and your data stays yours. This powers AI-drafted replies in the inbox, the auto-reply bot, and the Playground."
+        title="Configuración del agente"
+        description="Usa tu propia clave de OpenAI o Anthropic. wacrm llama al proveedor directamente con tu clave — sin tarifas de IA por usuario, y tus datos siguen siendo tuyos. Esto impulsa las respuestas redactadas por IA en la bandeja de entrada, el bot de respuesta automática y el Playground."
       />
 
       {!canEdit && (
         <p className="mb-4 rounded-md border border-border bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
-          Only admins and owners can change the AI configuration.
+          Solo los administradores y propietarios pueden cambiar la configuración de IA.
         </p>
       )}
 
@@ -251,17 +251,17 @@ export function AiConfig() {
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-base">
-              <Sparkles className="h-4 w-4 text-primary" /> Provider & key
+              <Sparkles className="h-4 w-4 text-primary" /> Proveedor y clave
             </CardTitle>
             <CardDescription>
-              Your key is encrypted at rest (AES-256-GCM) and never shown again
-              after saving.
+              Tu clave se cifra en reposo (AES-256-GCM) y nunca se vuelve a
+              mostrar tras guardarla.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-2">
-                <Label>Provider</Label>
+                <Label>Proveedor</Label>
                 <Select
                   value={provider}
                   onValueChange={(v) => handleProviderChange(v as AiProvider)}
@@ -280,7 +280,7 @@ export function AiConfig() {
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="ai-model">Model</Label>
+                <Label htmlFor="ai-model">Modelo</Label>
                 <Input
                   id="ai-model"
                   value={model}
@@ -292,7 +292,7 @@ export function AiConfig() {
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="ai-key">API key</Label>
+              <Label htmlFor="ai-key">Clave de API</Label>
               <div className="flex gap-2">
                 <div className="relative flex-1">
                   <Input
@@ -336,16 +336,16 @@ export function AiConfig() {
                   ) : (
                     <CheckCircle2 className="mr-2 h-4 w-4" />
                   )}
-                  Test key
+                  Probar clave
                 </Button>
               </div>
             </div>
 
             <div className="space-y-2">
               <Label htmlFor="ai-embeddings-key">
-                Embeddings key{' '}
+                Clave de embeddings{' '}
                 <span className="font-normal text-muted-foreground">
-                  (optional — enables semantic knowledge-base search)
+                  (opcional — habilita la búsqueda semántica en la base de conocimiento)
                 </span>
               </Label>
               <Input
@@ -367,11 +367,11 @@ export function AiConfig() {
                 autoComplete="off"
               />
               <p className="text-xs text-muted-foreground">
-                An OpenAI key used only to embed your knowledge base
-                (text-embedding-3-small)
-                {provider === 'openai' ? ' — can be the same key as above' : ''}.
-                Leave blank to use keyword search instead. Clear it to turn
-                semantic search off.
+                Una clave de OpenAI usada solo para generar embeddings de tu
+                base de conocimiento (text-embedding-3-small)
+                {provider === 'openai' ? ' — puede ser la misma clave de arriba' : ''}.
+                Déjala en blanco para usar búsqueda por palabras clave.
+                Bórrala para desactivar la búsqueda semántica.
               </p>
             </div>
           </CardContent>
@@ -379,21 +379,21 @@ export function AiConfig() {
 
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">Behaviour</CardTitle>
+            <CardTitle className="text-base">Comportamiento</CardTitle>
             <CardDescription>
-              Tell the assistant about your business — products, tone, what it
-              may and may not promise. This context feeds both drafts and
-              auto-replies.
+              Cuéntale al asistente sobre tu negocio — productos, tono, qué
+              puede y qué no puede prometer. Este contexto alimenta tanto los
+              borradores como las respuestas automáticas.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="ai-prompt">Business context & instructions</Label>
+              <Label htmlFor="ai-prompt">Contexto e instrucciones del negocio</Label>
               <Textarea
                 id="ai-prompt"
                 value={systemPrompt}
                 onChange={(e) => setSystemPrompt(e.target.value)}
-                placeholder="e.g. We are Acme, a coffee-equipment store. Be warm and concise. Never quote prices or delivery dates — hand off to a human for those."
+                placeholder="p. ej. Somos Acme, una tienda de equipos de café. Sé cálido y conciso. Nunca des precios ni fechas de entrega — deriva a una persona para eso."
                 rows={5}
                 disabled={disabled}
               />
@@ -402,11 +402,11 @@ export function AiConfig() {
             <div className="flex items-center justify-between gap-4 rounded-md border border-border p-3">
               <div>
                 <p className="text-sm font-medium text-foreground">
-                  Enable AI assistant
+                  Habilitar asistente IA
                 </p>
                 <p className="text-xs text-muted-foreground">
-                  Master switch. Turns on the “Draft with AI” button in the
-                  inbox.
+                  Interruptor principal. Activa el botón “Redactar con IA” en
+                  la bandeja de entrada.
                 </p>
               </div>
               <Switch
@@ -419,12 +419,12 @@ export function AiConfig() {
             <div className="flex items-center justify-between gap-4 rounded-md border border-border p-3">
               <div>
                 <p className="text-sm font-medium text-foreground">
-                  Auto-reply to inbound messages
+                  Responder automáticamente los mensajes entrantes
                 </p>
                 <p className="text-xs text-muted-foreground">
-                  The bot answers new inbound messages automatically (only when
-                  no flow handles them and no agent is assigned). Hands off to a
-                  human when it can’t help.
+                  El bot responde automáticamente los nuevos mensajes entrantes
+                  (solo cuando ningún flujo los maneja y no hay un agente
+                  asignado). Deriva a una persona cuando no puede ayudar.
                 </p>
               </div>
               <Switch
@@ -436,9 +436,10 @@ export function AiConfig() {
 
             <div className="flex items-center justify-between gap-4">
               <div>
-                <Label htmlFor="ai-max">Max auto-replies per conversation</Label>
+                <Label htmlFor="ai-max">Máximo de respuestas automáticas por conversación</Label>
                 <p className="text-xs text-muted-foreground">
-                  After this many bot replies in one thread, the bot goes quiet.
+                  Tras esta cantidad de respuestas del bot en un mismo hilo, el
+                  bot se queda en silencio.
                 </p>
               </div>
               <Input
@@ -461,52 +462,52 @@ export function AiConfig() {
 
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">Setter &amp; Closer modes</CardTitle>
+            <CardTitle className="text-base">Modos Setter y Closer</CardTitle>
             <CardDescription>
-              In auto-reply the bot starts as a <strong>setter</strong> (engage
-              &amp; qualify) and switches to <strong>closer</strong> once the lead
-              is qualified. Both fields are optional — leave blank to just use the
-              business context above.
+              En la respuesta automática el bot empieza como <strong>setter</strong>
+              (conecta y califica) y cambia a <strong>closer</strong> una vez que el
+              lead está calificado. Ambos campos son opcionales — déjalos en blanco
+              para usar solo el contexto del negocio de arriba.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="space-y-2">
               <Label htmlFor="ai-agent-name">
-                Agent name{' '}
+                Nombre del agente{' '}
                 <span className="font-normal text-muted-foreground">
-                  (optional)
+                  (opcional)
                 </span>
               </Label>
               <Input
                 id="ai-agent-name"
                 value={agentName}
                 onChange={(e) => setAgentName(e.target.value)}
-                placeholder="e.g. Sofía"
+                placeholder="p. ej. Sofía"
                 disabled={disabled}
               />
             </div>
             <div className="space-y-2">
               <Label htmlFor="ai-setter">
-                Setter instructions (engage &amp; qualify)
+                Instrucciones del setter (conecta y califica)
               </Label>
               <Textarea
                 id="ai-setter"
                 value={setterPrompt}
                 onChange={(e) => setSetterPrompt(e.target.value)}
-                placeholder="Greet warmly, ask what they need, guide toward booking a call. Never give up on a thin reply."
+                placeholder="Saluda con calidez, pregunta qué necesitan, guíalos a agendar una llamada. Nunca te rindas ante una respuesta escueta."
                 rows={4}
                 disabled={disabled}
               />
             </div>
             <div className="space-y-2">
               <Label htmlFor="ai-closer">
-                Closer instructions (once qualified)
+                Instrucciones del closer (una vez calificado)
               </Label>
               <Textarea
                 id="ai-closer"
                 value={closerPrompt}
                 onChange={(e) => setCloserPrompt(e.target.value)}
-                placeholder="Handle objections, confirm the call time, be direct and confident — never pushy."
+                placeholder="Maneja objeciones, confirma la hora de la llamada, sé directo y seguro — nunca insistente."
                 rows={4}
                 disabled={disabled}
               />
@@ -537,7 +538,7 @@ export function AiConfig() {
               ) : (
                 <Trash2 className="mr-2 h-4 w-4" />
               )}
-              Remove
+              Eliminar
             </Button>
           ) : (
             <span />
@@ -545,7 +546,7 @@ export function AiConfig() {
 
           <Button onClick={handleSave} disabled={disabled}>
             {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-            Save
+            Guardar
           </Button>
         </div>
       </div>

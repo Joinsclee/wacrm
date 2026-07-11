@@ -164,16 +164,16 @@ export function FlowBuilder() {
       <section className="flex flex-col gap-3">
         <div className="flex items-center justify-between">
           <h2 className="text-foreground text-sm font-semibold">
-            Nodes ({state.nodes.length})
+            Nodos ({state.nodes.length})
           </h2>
           <AddNodeButton onAdd={addNode} />
         </div>
 
         {state.nodes.length === 0 ? (
           <div className="border-border bg-card/50 text-muted-foreground rounded-lg border border-dashed p-8 text-center text-sm">
-            Add a <strong>Start</strong> node, then a{' '}
-            <strong>Send buttons</strong> node, then a <strong>Handoff</strong>{' '}
-            — that&apos;s the welcome-menu shape from the brief.
+            Agrega un nodo <strong>Inicio</strong>, luego un nodo{' '}
+            <strong>Enviar botones</strong> y después un <strong>Transferir</strong>{' '}
+            — esa es la estructura del menú de bienvenida del brief.
           </div>
         ) : (
           state.nodes.map((node) => (
@@ -246,7 +246,7 @@ function KeywordsInput({
           commit();
         }
       }}
-      placeholder="support, help, hi"
+      placeholder="soporte, ayuda, hola"
       className="bg-muted"
     />
   );
@@ -267,11 +267,11 @@ function TriggerPanel({
 }) {
   return (
     <section className="border-border bg-card rounded-lg border p-4">
-      <h2 className="text-foreground mb-3 text-sm font-semibold">Trigger</h2>
+      <h2 className="text-foreground mb-3 text-sm font-semibold">Disparador</h2>
       <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
         <div>
           <label className="text-muted-foreground mb-1 block text-xs">
-            When…
+            Cuando…
           </label>
           <Select
             value={state.trigger_type}
@@ -289,13 +289,13 @@ function TriggerPanel({
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="keyword">
-                A message contains a keyword
+                Un mensaje contiene una palabra clave
               </SelectItem>
               <SelectItem value="first_inbound_message">
-                Customer&apos;s first ever inbound message
+                El primer mensaje entrante del cliente
               </SelectItem>
               <SelectItem value="manual">
-                Manual only (no auto-trigger)
+                Solo manual (sin disparo automático)
               </SelectItem>
             </SelectContent>
           </Select>
@@ -303,7 +303,7 @@ function TriggerPanel({
         {state.trigger_type === 'keyword' && (
           <div>
             <label className="text-muted-foreground mb-1 block text-xs">
-              Keywords (comma-separated)
+              Palabras clave (separadas por comas)
             </label>
             <KeywordsInput
               keywords={
@@ -347,12 +347,12 @@ function EntryPicker({
   return (
     <section className="border-border bg-card flex items-center gap-3 rounded-lg border p-3">
       <CornerDownRight className="text-primary h-4 w-4 shrink-0" />
-      <span className="text-muted-foreground text-xs">Entry node:</span>
+      <span className="text-muted-foreground text-xs">Nodo de entrada:</span>
       <NodeKeySelect
         value={state.entry_node_id}
         nodes={state.nodes}
         onChange={(key) => setState((s) => ({ ...s, entry_node_id: key }))}
-        placeholder="Pick the first node…"
+        placeholder="Elige el primer nodo…"
         className="max-w-xs flex-1"
       />
     </section>
@@ -434,7 +434,7 @@ function NodeCard({
                 variant="outline"
                 className="border-primary/40 bg-primary/10 text-primary text-[10px]"
               >
-                Entry
+                Entrada
               </Badge>
             )}
           </div>
@@ -465,7 +465,7 @@ function NodeCard({
             <div className="flex items-center gap-2">
               {!isEntry && (
                 <Button variant="ghost" size="sm" onClick={onSetEntry}>
-                  Set as entry
+                  Marcar como entrada
                 </Button>
               )}
             </div>
@@ -476,7 +476,7 @@ function NodeCard({
               className="text-red-400 hover:bg-red-500/10 hover:text-red-300"
             >
               <Trash2 className="h-3.5 w-3.5" />
-              Remove node
+              Quitar nodo
             </Button>
           </div>
           {issues.length > 0 && (
@@ -531,13 +531,13 @@ function NodeConfigWithAdvanced({
           ) : (
             <ChevronDown className="h-3 w-3" />
           )}
-          {showAdvanced ? 'Hide' : 'Show'} advanced
+          {showAdvanced ? 'Ocultar' : 'Mostrar'} avanzado
         </button>
         {showAdvanced && (
           <div className="mt-3 flex flex-col gap-3">
             <div>
               <label className="text-muted-foreground mb-1 block text-xs">
-                Node key (internal identifier — keep stable for analytics)
+                Clave del nodo (identificador interno — mantenla estable para analíticas)
               </label>
               <Input
                 value={node.node_key}
@@ -549,9 +549,9 @@ function NodeConfigWithAdvanced({
             </div>
             {hasReplyIds && (
               <p className="text-muted-foreground text-[10px]">
-                Reply IDs for each option are shown inline above. They&apos;re
-                returned by WhatsApp when a customer taps; you usually
-                don&apos;t need to touch them.
+                Los IDs de respuesta de cada opción se muestran arriba en
+                línea. WhatsApp los devuelve cuando un cliente toca una opción;
+                normalmente no necesitas modificarlos.
               </p>
             )}
           </div>
@@ -582,10 +582,10 @@ function AddNodeButton({ onAdd }: { onAdd: (type: NodeType) => void }) {
     <DropdownMenu>
       <DropdownMenuTrigger
         className="border-border bg-card text-foreground hover:bg-muted inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-xs font-medium transition-colors"
-        aria-label="Add node"
+        aria-label="Agregar nodo"
       >
         <Plus className="h-3.5 w-3.5" />
-        Add node
+        Agregar nodo
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="border-border bg-popover">
         {groupNodeTypesByCategory(types).map((group, i) => (

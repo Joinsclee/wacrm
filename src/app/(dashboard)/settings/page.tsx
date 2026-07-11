@@ -67,11 +67,11 @@ export default function SettingsPage() {
     <div>
       <div>
         <h1 className="text-2xl font-bold tracking-tight text-foreground">
-          Settings
+          Ajustes
         </h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          Everything in one place — your account and your workspace. Pick a
-          section to manage it.
+          Todo en un solo lugar: tu cuenta y tu espacio de trabajo. Elige una
+          sección para gestionarla.
         </p>
       </div>
 

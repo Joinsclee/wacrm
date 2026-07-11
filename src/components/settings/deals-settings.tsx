@@ -56,7 +56,7 @@ export function DealsSettings() {
       .update({ default_currency: selected })
       .eq("id", accountId);
     if (error) {
-      toast.error("Failed to save default currency");
+      toast.error("No se pudo guardar la moneda predeterminada");
       setSaving(false);
       return;
     }
@@ -64,30 +64,31 @@ export function DealsSettings() {
     // and every total pick it up without a full reload.
     await refreshProfile();
     setSaving(false);
-    toast.success("Default currency updated");
+    toast.success("Moneda predeterminada actualizada");
   }
 
   return (
     <section className="max-w-2xl animate-in fade-in-50 duration-200">
       <SettingsPanelHead
-        title="Deals & currency"
-        description="The currency used for new deals and for pipeline and dashboard totals."
+        title="Oportunidades y moneda"
+        description="La moneda usada para las nuevas oportunidades y para los totales del embudo y del panel."
       />
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-foreground">
             <Coins className="size-4 text-primary" />
-            Default currency
+            Moneda predeterminada
           </CardTitle>
           <CardDescription className="text-muted-foreground">
-            New deals default to this currency, and pipeline and
-            dashboard totals are shown in it. Existing deals keep the
-            currency they were saved with.
+            Las nuevas oportunidades usan esta moneda por defecto, y los
+            totales del embudo y del panel se muestran en ella. Las
+            oportunidades existentes conservan la moneda con la que se
+            guardaron.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="grid gap-2 sm:max-w-xs">
-            <Label className="text-muted-foreground">Currency</Label>
+            <Label className="text-muted-foreground">Moneda</Label>
             <select
               value={selected}
               onChange={(e) => setSelected(e.target.value)}
@@ -102,7 +103,7 @@ export function DealsSettings() {
             </select>
             {!canEditSettings && (
               <p className="text-xs text-muted-foreground">
-                Only account admins can change the default currency.
+                Solo los administradores de la cuenta pueden cambiar la moneda predeterminada.
               </p>
             )}
           </div>
@@ -116,10 +117,10 @@ export function DealsSettings() {
               {saving ? (
                 <>
                   <Loader2 className="size-4 animate-spin" />
-                  Saving...
+                  Guardando...
                 </>
               ) : (
-                "Save"
+                "Guardar"
               )}
             </Button>
           )}

@@ -81,14 +81,14 @@ export function ApiKeysSettings() {
       const res = await fetch('/api/account/api-keys', { cache: 'no-store' });
       if (!res.ok) {
         const payload = await res.json().catch(() => ({}));
-        toast.error(payload.error || 'Failed to load API keys');
+        toast.error(payload.error || 'No se pudieron cargar las claves de API');
         return;
       }
       const data = (await res.json()) as { keys: ApiKey[] };
       setKeys(data.keys);
     } catch (err) {
       console.error('[ApiKeysSettings] load error:', err);
-      toast.error('Could not reach the server');
+      toast.error('No se pudo conectar con el servidor');
     } finally {
       setLoading(false);
     }
@@ -106,10 +106,10 @@ export function ApiKeysSettings() {
       });
       if (!res.ok) {
         const payload = await res.json().catch(() => ({}));
-        toast.error(payload.error || 'Failed to revoke key');
+        toast.error(payload.error || 'No se pudo revocar la clave');
         return;
       }
-      toast.success(`Revoked "${key.name}"`);
+      toast.success(`Se revocó "${key.name}"`);
       // Reflect the revoke locally without a refetch.
       setKeys((prev) =>
         prev.map((k) =>
@@ -118,7 +118,7 @@ export function ApiKeysSettings() {
       );
     } catch (err) {
       console.error('[ApiKeysSettings] revoke error:', err);
-      toast.error('Could not reach the server');
+      toast.error('No se pudo conectar con el servidor');
     } finally {
       setRevoking(null);
     }
@@ -135,12 +135,12 @@ export function ApiKeysSettings() {
   return (
     <section className="animate-in fade-in-50 space-y-6 duration-200">
       <SettingsPanelHead
-        title="API keys"
+        title="Claves de API"
         description={
           <>
-            Keys authenticate the public REST API (
-            <code className="text-xs">/api/v1</code>) so you can build your own
-            automations. Send them as{' '}
+            Las claves autentican la API REST pública (
+            <code className="text-xs">/api/v1</code>) para que construyas tus
+            propias automatizaciones. Envíalas como{' '}
             <code className="text-xs">Authorization: Bearer &lt;key&gt;</code>.
           </>
         }
@@ -148,7 +148,7 @@ export function ApiKeysSettings() {
           <RequireRole min="admin">
             <Button onClick={() => setCreateOpen(true)}>
               <Plus className="size-4" />
-              New API key
+              Nueva clave de API
             </Button>
           </RequireRole>
         }
@@ -159,16 +159,16 @@ export function ApiKeysSettings() {
           <CardContent className="flex flex-col items-center justify-center py-10 text-center">
             <KeyRound className="text-muted-foreground size-6" />
             <p className="text-muted-foreground mt-2 text-sm">
-              No API keys yet.
+              Aún no hay claves de API.
             </p>
             {canEditSettings ? (
               <p className="text-muted-foreground mt-1 text-xs">
-                Click <span className="text-foreground">New API key</span> to
-                create one.
+                Haz clic en <span className="text-foreground">Nueva clave de API</span> para
+                crear una.
               </p>
             ) : (
               <p className="text-muted-foreground mt-1 text-xs">
-                Ask an admin to create one.
+                Pídele a un administrador que cree una.
               </p>
             )}
           </CardContent>
@@ -198,12 +198,12 @@ export function ApiKeysSettings() {
                         </span>
                         {status === 'revoked' && (
                           <Badge className="border-border bg-muted text-muted-foreground text-[10px] tracking-wide uppercase">
-                            Revoked
+                            Revocada
                           </Badge>
                         )}
                         {status === 'expired' && (
                           <Badge className="border-border bg-muted text-muted-foreground text-[10px] tracking-wide uppercase">
-                            Expired
+                            Expirada
                           </Badge>
                         )}
                       </div>
@@ -213,7 +213,7 @@ export function ApiKeysSettings() {
                       <div className="mt-1.5 flex flex-wrap gap-1">
                         {k.scopes.length === 0 ? (
                           <span className="text-muted-foreground text-xs">
-                            No scopes
+                            Sin permisos
                           </span>
                         ) : (
                           k.scopes.map((s) => (
@@ -227,13 +227,13 @@ export function ApiKeysSettings() {
                         )}
                       </div>
                       <p className="text-muted-foreground mt-1.5 text-xs">
-                        Created {fmtDate(k.created_at)}
+                        Creada el {fmtDate(k.created_at)}
                         {' · '}
                         {k.last_used_at
-                          ? `last used ${fmtDate(k.last_used_at)}`
-                          : 'never used'}
+                          ? `usada por última vez ${fmtDate(k.last_used_at)}`
+                          : 'nunca usada'}
                         {k.expires_at && status !== 'expired'
-                          ? ` · expires ${fmtDate(k.expires_at)}`
+                          ? ` · expira ${fmtDate(k.expires_at)}`
                           : ''}
                       </p>
                     </div>
@@ -252,7 +252,7 @@ export function ApiKeysSettings() {
                           ) : (
                             <Trash2 className="size-4" />
                           )}
-                          Revoke
+                          Revocar
                         </Button>
                       </RequireRole>
                     )}
@@ -308,7 +308,7 @@ function CreateKeyDialog({
   async function handleCreate() {
     const trimmed = name.trim();
     if (!trimmed) {
-      toast.error('Give the key a name');
+      toast.error('Dale un nombre a la clave');
       return;
     }
     setSubmitting(true);
@@ -320,14 +320,14 @@ function CreateKeyDialog({
       });
       const payload = await res.json().catch(() => ({}));
       if (!res.ok) {
-        toast.error(payload.error || 'Failed to create key');
+        toast.error(payload.error || 'No se pudo crear la clave');
         return;
       }
       setCreatedKey(payload.plaintext as string);
       onCreated();
     } catch (err) {
       console.error('[CreateKeyDialog] create error:', err);
-      toast.error('Could not reach the server');
+      toast.error('No se pudo conectar con el servidor');
     } finally {
       setSubmitting(false);
     }
@@ -337,9 +337,9 @@ function CreateKeyDialog({
     if (!createdKey) return;
     try {
       await navigator.clipboard.writeText(createdKey);
-      toast.success('API key copied');
+      toast.success('Clave de API copiada');
     } catch {
-      toast.error('Copy failed — select and copy manually');
+      toast.error('Error al copiar — selecciona y copia manualmente');
     }
   }
 
@@ -356,16 +356,16 @@ function CreateKeyDialog({
           <>
             <DialogHeader>
               <DialogTitle className="text-popover-foreground">
-                Copy your API key
+                Copia tu clave de API
               </DialogTitle>
               <DialogDescription className="text-muted-foreground">
-                This is the only time the full key is shown. Store it somewhere
-                safe — if you lose it, revoke it and create a new one.
+                Esta es la única vez que se muestra la clave completa. Guárdala
+                en un lugar seguro — si la pierdes, revócala y crea una nueva.
               </DialogDescription>
             </DialogHeader>
 
             <div className="space-y-1.5">
-              <Label className="text-muted-foreground">API key</Label>
+              <Label className="text-muted-foreground">Clave de API</Label>
               <div className="flex gap-2">
                 <Input
                   readOnly
@@ -375,7 +375,7 @@ function CreateKeyDialog({
                 />
                 <Button type="button" variant="outline" onClick={copyKey}>
                   <Copy className="size-4" />
-                  Copy
+                  Copiar
                 </Button>
               </div>
             </div>
@@ -387,7 +387,7 @@ function CreateKeyDialog({
                   onOpenChange(false);
                 }}
               >
-                Done
+                Listo
               </Button>
             </DialogFooter>
           </>
@@ -395,30 +395,30 @@ function CreateKeyDialog({
           <>
             <DialogHeader>
               <DialogTitle className="text-popover-foreground">
-                New API key
+                Nueva clave de API
               </DialogTitle>
               <DialogDescription className="text-muted-foreground">
-                Name it after the integration that will use it, and grant only
-                the scopes it needs.
+                Nómbrala según la integración que la usará, y otórgale solo los
+                permisos que necesita.
               </DialogDescription>
             </DialogHeader>
 
             <div className="space-y-4">
               <div className="space-y-1.5">
                 <Label htmlFor="api-key-name" className="text-muted-foreground">
-                  Name
+                  Nombre
                 </Label>
                 <Input
                   id="api-key-name"
                   value={name}
                   maxLength={80}
-                  placeholder="e.g. Zapier automation"
+                  placeholder="p. ej. Automatización de Zapier"
                   onChange={(e) => setName(e.target.value)}
                 />
               </div>
 
               <div className="space-y-2">
-                <Label className="text-muted-foreground">Scopes</Label>
+                <Label className="text-muted-foreground">Permisos</Label>
                 <div className="border-border space-y-2 rounded-md border p-3">
                   {API_SCOPES.map((scope) => (
                     <label
@@ -444,9 +444,9 @@ function CreateKeyDialog({
                   ))}
                 </div>
                 <p className="text-muted-foreground text-xs">
-                  A key with no scopes can still call{' '}
-                  <code className="text-[11px]">GET /api/v1/me</code> to verify
-                  it works.
+                  Una clave sin permisos aún puede llamar a{' '}
+                  <code className="text-[11px]">GET /api/v1/me</code> para
+                  verificar que funciona.
                 </p>
               </div>
             </div>
@@ -460,16 +460,16 @@ function CreateKeyDialog({
                 }}
                 className="border-border text-muted-foreground hover:bg-muted"
               >
-                Cancel
+                Cancelar
               </Button>
               <Button onClick={handleCreate} disabled={submitting}>
                 {submitting ? (
                   <>
                     <Loader2 className="size-4 animate-spin" />
-                    Creating…
+                    Creando…
                   </>
                 ) : (
-                  'Create key'
+                  'Crear clave'
                 )}
               </Button>
             </DialogFooter>

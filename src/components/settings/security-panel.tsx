@@ -12,8 +12,8 @@ export function SecurityPanel() {
   return (
     <section className="max-w-2xl animate-in fade-in-50 duration-200">
       <SettingsPanelHead
-        title="Login & security"
-        description="Change your password and sign out of your devices. These keep your account safe."
+        title="Inicio de sesión y seguridad"
+        description="Cambia tu contraseña y cierra sesión en tus dispositivos. Esto mantiene tu cuenta segura."
       />
       <div className="space-y-4">
         <PasswordForm />

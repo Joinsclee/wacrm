@@ -98,7 +98,7 @@ function ImportPreviewTags({
               color,
               border: `1px solid ${color}${isKnown ? '55' : '30'}`,
             }}
-            title={isKnown ? name : `${name} (will be created on import)`}
+            title={isKnown ? name : `${name} (se creará al importar)`}
           >
             <span
               className="size-1.5 shrink-0 rounded-full"
@@ -173,7 +173,7 @@ export function ImportModal({
 
     if (rows.length === 0) {
       toast.error(
-        'No valid rows found. Ensure CSV has a "phone" column header.'
+        'No se encontraron filas válidas. Asegúrate de que el CSV tenga una columna con encabezado "phone".'
       );
       setParsedRows([]);
       setHasTagsColumn(false);
@@ -212,9 +212,9 @@ export function ImportModal({
         data: { session },
       } = await supabase.auth.getSession();
       const user = session?.user;
-      if (!user) throw new Error('Not authenticated');
+      if (!user) throw new Error('No autenticado');
       if (!accountId)
-        throw new Error('Your profile is not linked to an account.');
+        throw new Error('Tu perfil no está vinculado a una cuenta.');
 
       let imported = 0;
       let skipped = 0;
@@ -336,39 +336,39 @@ export function ImportModal({
           tagIdByKey
         );
       } catch {
-        toast.warning('Contacts imported, but some tag assignments failed.');
+        toast.warning('Contactos importados, pero algunas asignaciones de etiquetas fallaron.');
       }
 
       setResult({ imported, skipped, failed, tagsAssigned });
       if (imported > 0) {
         toast.success(
-          `${imported} contact${imported !== 1 ? 's' : ''} imported`
+          `${imported} contacto${imported !== 1 ? 's' : ''} importado${imported !== 1 ? 's' : ''}`
         );
         onImported();
       }
       if (tagsAssigned > 0) {
         toast.success(
-          `${tagsAssigned} tag assignment${tagsAssigned !== 1 ? 's' : ''} applied`
+          `${tagsAssigned} asignación${tagsAssigned !== 1 ? 'es' : ''} de etiqueta aplicada${tagsAssigned !== 1 ? 's' : ''}`
         );
       }
       if (skippedNames.length > 0) {
         const sample = skippedNames.slice(0, 3).join(', ');
         const more =
-          skippedNames.length > 3 ? ` (+${skippedNames.length - 3} more)` : '';
+          skippedNames.length > 3 ? ` (+${skippedNames.length - 3} más)` : '';
         toast.info(
-          `Unknown tags skipped (create them in Settings first): ${sample}${more}`
+          `Etiquetas desconocidas omitidas (créalas primero en Ajustes): ${sample}${more}`
         );
       }
       if (skipped > 0) {
-        toast.info(`${skipped} duplicate${skipped !== 1 ? 's' : ''} skipped`);
+        toast.info(`${skipped} duplicado${skipped !== 1 ? 's' : ''} omitido${skipped !== 1 ? 's' : ''}`);
       }
       if (failed > 0) {
         toast.error(
-          `${failed} contact${failed !== 1 ? 's' : ''} failed to import`
+          `${failed} contacto${failed !== 1 ? 's' : ''} no se pudo importar`
         );
       }
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : 'Import failed';
+      const message = err instanceof Error ? err.message : 'La importación falló';
       toast.error(message);
     } finally {
       setImporting(false);
@@ -402,14 +402,14 @@ export function ImportModal({
         <div className="shrink-0 space-y-4 border-b border-border/80 px-6 pt-6 pb-5">
           <DialogHeader className="gap-1.5">
             <DialogTitle className="text-lg text-popover-foreground">
-              Import Contacts
+              Importar contactos
             </DialogTitle>
             <DialogDescription className="leading-relaxed text-muted-foreground">
-              Upload a CSV with a required{' '}
+              Sube un CSV con una columna{' '}
               <code className="rounded bg-muted px-1 py-0.5 text-[11px] text-muted-foreground">
                 phone
               </code>{' '}
-              column. Optional:{' '}
+              obligatoria. Opcionales:{' '}
               <code className="rounded bg-muted px-1 py-0.5 text-[11px] text-muted-foreground">
                 name
               </code>
@@ -425,7 +425,7 @@ export function ImportModal({
               <code className="rounded bg-muted px-1 py-0.5 text-[11px] text-muted-foreground">
                 tags
               </code>{' '}
-              (comma-separated; quote multi-tag cells).
+              (separadas por comas; usa comillas en celdas con varias etiquetas).
             </DialogDescription>
           </DialogHeader>
 
@@ -456,8 +456,8 @@ export function ImportModal({
                   {truncateFilename(file.name)}
                 </p>
                 <span className="rounded-full bg-muted px-2.5 py-0.5 text-[11px] font-medium text-muted-foreground">
-                  {parsedRows.length} row{parsedRows.length !== 1 ? 's' : ''}{' '}
-                  ready
+                  {parsedRows.length} fila{parsedRows.length !== 1 ? 's' : ''}{' '}
+                  lista{parsedRows.length !== 1 ? 's' : ''}
                 </span>
               </>
             ) : (
@@ -466,10 +466,10 @@ export function ImportModal({
                   <Upload className="size-5 text-muted-foreground group-hover:text-foreground" />
                 </div>
                 <p className="text-sm text-muted-foreground">
-                  Click to choose a CSV file
+                  Haz clic para elegir un archivo CSV
                 </p>
                 <p className="text-[11px] text-muted-foreground">
-                  .csv up to your browser limit
+                  .csv hasta el límite de tu navegador
                 </p>
               </>
             )}
@@ -489,14 +489,14 @@ export function ImportModal({
             <div className="space-y-3">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <p className="text-[11px] font-semibold tracking-[0.14em] text-muted-foreground uppercase">
-                  Preview · first {preview.length}
+                  Vista previa · primeras {preview.length}
                 </p>
                 <div className="flex flex-wrap items-center gap-1.5">
                   {tagStats.rowsWithTags > 0 && (
                     <span className="inline-flex items-center gap-1 rounded-md bg-muted/90 px-2 py-0.5 text-[11px] text-muted-foreground">
                       <Tag className="text-primary/80 size-3" />
-                      {tagStats.unique} tag{tagStats.unique !== 1 ? 's' : ''} ·{' '}
-                      {tagStats.rowsWithTags} contact
+                      {tagStats.unique} etiqueta{tagStats.unique !== 1 ? 's' : ''} ·{' '}
+                      {tagStats.rowsWithTags} contacto
                       {tagStats.rowsWithTags !== 1 ? 's' : ''}
                     </span>
                   )}
@@ -509,22 +509,22 @@ export function ImportModal({
                     <thead>
                       <tr className="border-b border-border bg-background/60">
                         <th className="px-3 py-2 text-left font-medium whitespace-nowrap text-muted-foreground">
-                          Phone
+                          Teléfono
                         </th>
                         <th className="px-3 py-2 text-left font-medium whitespace-nowrap text-muted-foreground">
-                          Name
+                          Nombre
                         </th>
                         <th className="px-3 py-2 text-left font-medium whitespace-nowrap text-muted-foreground">
-                          Email
+                          Correo
                         </th>
                         {previewHasCompany && (
                           <th className="px-3 py-2 text-left font-medium whitespace-nowrap text-muted-foreground">
-                            Company
+                            Empresa
                           </th>
                         )}
                         {previewHasTags && (
                           <th className="px-3 py-2 text-left font-medium whitespace-nowrap text-muted-foreground">
-                            Tags
+                            Etiquetas
                           </th>
                         )}
                       </tr>
@@ -579,8 +579,9 @@ export function ImportModal({
 
               {parsedRows.length > PREVIEW_LIMIT && (
                 <p className="text-center text-[11px] text-muted-foreground">
-                  + {parsedRows.length - PREVIEW_LIMIT} more row
-                  {parsedRows.length - PREVIEW_LIMIT !== 1 ? 's' : ''} not shown
+                  + {parsedRows.length - PREVIEW_LIMIT} fila
+                  {parsedRows.length - PREVIEW_LIMIT !== 1 ? 's' : ''} más no mostrada
+                  {parsedRows.length - PREVIEW_LIMIT !== 1 ? 's' : ''}
                 </p>
               )}
             </div>
@@ -588,31 +589,32 @@ export function ImportModal({
 
           {result && (
             <div className="rounded-xl border border-border bg-background/50 p-4">
-              <p className="text-sm font-medium text-popover-foreground">Import complete</p>
+              <p className="text-sm font-medium text-popover-foreground">Importación completada</p>
               <div className="mt-3 flex flex-wrap gap-3">
                 {result.imported > 0 && (
                   <div className="text-primary flex items-center gap-1.5 text-sm">
                     <CheckCircle className="size-4 shrink-0" />
-                    {result.imported} imported
+                    {result.imported} importado{result.imported !== 1 ? 's' : ''}
                   </div>
                 )}
                 {result.tagsAssigned > 0 && (
                   <div className="flex items-center gap-1.5 text-sm text-cyan-400">
                     <CheckCircle className="size-4 shrink-0" />
-                    {result.tagsAssigned} tag
-                    {result.tagsAssigned !== 1 ? 's' : ''} assigned
+                    {result.tagsAssigned} etiqueta
+                    {result.tagsAssigned !== 1 ? 's' : ''} asignada
+                    {result.tagsAssigned !== 1 ? 's' : ''}
                   </div>
                 )}
                 {result.skipped > 0 && (
                   <div className="flex items-center gap-1.5 text-sm text-amber-400">
                     <AlertTriangle className="size-4 shrink-0" />
-                    {result.skipped} skipped
+                    {result.skipped} omitido{result.skipped !== 1 ? 's' : ''}
                   </div>
                 )}
                 {result.failed > 0 && (
                   <div className="flex items-center gap-1.5 text-sm text-red-400">
                     <XCircle className="size-4 shrink-0" />
-                    {result.failed} failed
+                    {result.failed} fallido{result.failed !== 1 ? 's' : ''}
                   </div>
                 )}
               </div>
@@ -627,7 +629,7 @@ export function ImportModal({
             onClick={() => handleOpenChange(false)}
             className="border-border text-muted-foreground hover:bg-muted"
           >
-            {result ? 'Close' : 'Cancel'}
+            {result ? 'Cerrar' : 'Cancelar'}
           </Button>
           {!result && (
             <Button
@@ -637,7 +639,7 @@ export function ImportModal({
               className="bg-primary hover:bg-primary/90 text-primary-foreground"
             >
               {importing && <Loader2 className="size-4 animate-spin" />}
-              Import {parsedRows.length > 0 ? parsedRows.length : ''} contact
+              Importar {parsedRows.length > 0 ? parsedRows.length : ''} contacto
               {parsedRows.length !== 1 ? 's' : ''}
             </Button>
           )}

@@ -142,17 +142,17 @@ export function defaultConfigFor(type: NodeType): Record<string, unknown> {
     case "send_buttons":
       return {
         text: "",
-        buttons: [{ reply_id: "yes", title: "Yes", next_node_key: "" }],
+        buttons: [{ reply_id: "yes", title: "Sí", next_node_key: "" }],
       };
     case "send_list":
       return {
         text: "",
-        button_label: "View options",
+        button_label: "Ver opciones",
         sections: [
           {
             title: "",
             rows: [
-              { reply_id: "row_1", title: "Option 1", next_node_key: "" },
+              { reply_id: "row_1", title: "Opción 1", next_node_key: "" },
             ],
           },
         ],
@@ -344,12 +344,12 @@ export function FlowEditorProvider({
       });
       if (!res.ok) {
         const json = await res.json().catch(() => ({}));
-        throw new Error(json.error ?? `Save failed: ${res.status}`);
+        throw new Error(json.error ?? `Error al guardar: ${res.status}`);
       }
       setDirty(false);
-      toast.success("Saved.");
+      toast.success("Guardado.");
     } catch (err) {
-      const msg = err instanceof Error ? err.message : "Save failed";
+      const msg = err instanceof Error ? err.message : "Error al guardar";
       toast.error(msg);
     } finally {
       setSaving(false);
@@ -360,7 +360,7 @@ export function FlowEditorProvider({
   const setStatus = useCallback(
     async (next: BuilderState["status"]) => {
       if (next === "active" && !canActivate) {
-        toast.error("Fix the issues below before activating.");
+        toast.error("Corrige los problemas de abajo antes de activar.");
         return;
       }
       setActivating(true);
@@ -378,18 +378,18 @@ export function FlowEditorProvider({
         });
         if (!res.ok) {
           const json = await res.json().catch(() => ({}));
-          throw new Error(json.error ?? `Status update failed: ${res.status}`);
+          throw new Error(json.error ?? `Error al actualizar el estado: ${res.status}`);
         }
         setStateRaw((s) => ({ ...s, status: next }));
         toast.success(
           next === "active"
-            ? "Flow activated."
+            ? "Flujo activado."
             : next === "archived"
-              ? "Archived."
-              : "Saved as draft.",
+              ? "Archivado."
+              : "Guardado como borrador.",
         );
       } catch (err) {
-        const msg = err instanceof Error ? err.message : "Status update failed";
+        const msg = err instanceof Error ? err.message : "Error al actualizar el estado";
         toast.error(msg);
       } finally {
         setActivating(false);
@@ -401,17 +401,17 @@ export function FlowEditorProvider({
   // ---- Delete ----
   const deleteFlow = useCallback(async () => {
     const yes = window.confirm(
-      `Delete "${state.name}"? Any active runs end immediately. This can't be undone.`,
+      `¿Eliminar "${state.name}"? Cualquier ejecución activa terminará de inmediato. Esto no se puede deshacer.`,
     );
     if (!yes) return;
     try {
       const res = await fetch(`/api/flows/${initialFlow.id}`, {
         method: "DELETE",
       });
-      if (!res.ok) throw new Error(`Delete failed: ${res.status}`);
+      if (!res.ok) throw new Error(`Error al eliminar: ${res.status}`);
       router.push("/flows");
     } catch (err) {
-      const msg = err instanceof Error ? err.message : "Delete failed";
+      const msg = err instanceof Error ? err.message : "Error al eliminar";
       toast.error(msg);
     }
   }, [initialFlow.id, router, state.name]);

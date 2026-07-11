@@ -63,7 +63,7 @@ export function ReplyQuote({
         <button
           type="button"
           onClick={onDismiss}
-          aria-label="Cancel reply"
+          aria-label="Cancelar respuesta"
           className="flex h-6 w-6 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground"
         >
           <X className="h-3.5 w-3.5" />
@@ -78,18 +78,18 @@ export function buildReplyPreview(message: Message): string {
   if (message.content_text) return message.content_text;
   switch (message.content_type) {
     case "image":
-      return "[Image]";
+      return "[Imagen]";
     case "video":
       return "[Video]";
     case "audio":
       return "[Audio]";
     case "document":
-      return "[Document]";
+      return "[Documento]";
     case "location":
-      return "[Location]";
+      return "[Ubicación]";
     case "template":
-      return "[Template]";
+      return "[Plantilla]";
     default:
-      return "[Message]";
+      return "[Mensaje]";
   }
 }
