@@ -28,6 +28,7 @@ interface OverviewCounts {
 interface WhatsAppStatus {
   configured: boolean;
   connected: boolean;
+  reconnectRequired: boolean;
 }
 
 export function SettingsOverview({
@@ -128,6 +129,8 @@ export function SettingsOverview({
       setWhatsapp({
         configured: row.status === 'fulfilled' && !!row.value.data?.phone_number_id,
         connected: health.status === 'fulfilled' && !!health.value?.connected,
+        reconnectRequired:
+          health.status === 'fulfilled' && !!health.value?.reconnect_required,
       });
       setWhatsappLoading(false);
     })();
@@ -163,9 +166,13 @@ export function SettingsOverview({
         <>
           <StatusDot tone="ok" /> Conectado
         </>
+      ) : whatsapp.reconnectRequired ? (
+        <>
+          <StatusDot tone="muted" className="bg-amber-500" /> Requiere reconexión
+        </>
       ) : (
         <>
-          <StatusDot tone="muted" /> Requiere reconexión
+          <StatusDot tone="muted" /> Desconectado
         </>
       ),
     },

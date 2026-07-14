@@ -46,15 +46,27 @@ export interface DispatchInput {
   context?: AutomationContext
 }
 
+export interface AutomationDispatchResult {
+  /** Active automations whose configured trigger matched this event. */
+  matched: number
+  /**
+   * The dispatch could not be evaluated safely (ownership, fetch, or an
+   * unexpected top-level failure). Callers that coordinate responders can
+   * fail closed without making the engine throw.
+   */
+  failed: boolean
+}
+
 /**
  * Fire all active automations matching the given trigger for an
  * account.
  *
- * Must never throw — callers use fire-and-forget from the webhook.
- * All errors are caught and logged; per-automation failures are
- * recorded into automation_logs with status='failed'.
+ * Must never throw. All errors are caught and logged; per-automation
+ * failures are recorded into automation_logs with status='failed'.
  */
-export async function runAutomationsForTrigger(input: DispatchInput): Promise<void> {
+export async function runAutomationsForTrigger(
+  input: DispatchInput,
+): Promise<AutomationDispatchResult> {
   try {
     const db = supabaseAdmin()
 
@@ -63,8 +75,9 @@ export async function runAutomationsForTrigger(input: DispatchInput): Promise<vo
     // request body), and every step below runs through the service-role
     // client, which bypasses RLS. So before any step can touch the
     // contact, verify it actually belongs to this account. A foreign or
-    // forged id is refused silently — callers are fire-and-forget, and a
-    // distinct error would leak whether a given contact UUID exists.
+    // forged id is refused without a distinct public error, which would leak
+    // whether a given contact UUID exists. The typed result lets internal
+    // coordinators fail closed without changing that external behavior.
     if (input.contactId) {
       const { data: owned, error: ownErr } = await db
         .from('contacts')
@@ -74,11 +87,11 @@ export async function runAutomationsForTrigger(input: DispatchInput): Promise<vo
         .maybeSingle()
       if (ownErr) {
         console.error('[automations] contact ownership check failed:', ownErr)
-        return
+        return { matched: 0, failed: true }
       }
       if (!owned) {
         console.warn('[automations] contact not in account, refusing dispatch', input.contactId)
-        return
+        return { matched: 0, failed: true }
       }
     }
 
@@ -91,20 +104,26 @@ export async function runAutomationsForTrigger(input: DispatchInput): Promise<vo
 
     if (error) {
       console.error('[automations] fetch failed:', error)
-      return
+      return { matched: 0, failed: true }
     }
-    if (!automations || automations.length === 0) return
+    if (!automations || automations.length === 0) {
+      return { matched: 0, failed: false }
+    }
 
+    let matched = 0
     for (const automation of automations as Automation[]) {
       if (!triggerMatches(automation, input.context)) continue
+      matched += 1
       try {
         await executeAutomation(automation, input)
       } catch (err) {
         console.error('[automations] execute failed:', automation.id, err)
       }
     }
+    return { matched, failed: false }
   } catch (err) {
     console.error('[automations] dispatch failed:', err)
+    return { matched: 0, failed: true }
   }
 }
 

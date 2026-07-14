@@ -161,6 +161,25 @@ export async function resolveConversationByPhone(
     .single();
 
   if (convErr || !newConv) {
+    // A concurrent inbound/API request may have created the one allowed
+    // (account, contact) conversation after our lookup. Migration 036 turns
+    // that race into 23505; re-resolve the winning row just as we do for
+    // contact phone deduplication above.
+    if (isUniqueViolation(convErr)) {
+      const { data: raced } = await db
+        .from('conversations')
+        .select('id')
+        .eq('account_id', accountId)
+        .eq('contact_id', contactId)
+        .maybeSingle();
+      if (raced?.id) {
+        return {
+          conversationId: raced.id,
+          contactId,
+          contactCreated,
+        };
+      }
+    }
     console.error('[resolve-conversation] conversation create error:', convErr);
     throw new SendMessageError(
       'db_error',

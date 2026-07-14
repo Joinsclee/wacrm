@@ -13,6 +13,7 @@ import type {
   MessageReaction,
   Contact,
   ConversationStatus,
+  AiHandoffReason,
   MessageTemplate,
   Profile,
 } from "@/types";
@@ -81,7 +82,14 @@ interface MessageThreadProps {
    * (this is also what a model handoff sets). The header button flips it;
    * the parent syncs its local copy so the label updates instantly.
    */
-  onAiAutoreplyChange: (conversationId: string, disabled: boolean) => void;
+  onAiAutoreplyChange: (
+    conversationId: string,
+    disabled: boolean,
+    handoff: {
+      at: string | null;
+      reason: AiHandoffReason | null;
+    },
+  ) => void;
   /**
    * On mobile, the thread is shown full-screen with the conversation list
    * hidden. This callback lets the page deselect the active conversation
@@ -157,6 +165,24 @@ const STATUS_OPTIONS: { label: string; value: ConversationStatus; color: string 
  */
 const DOODLE_BG_CLASSES =
   "bg-background bg-[url('/inbox-doodle.svg')] bg-repeat";
+
+function aiModeTitle(conversation: Conversation | null): string {
+  if (!conversation?.ai_autoreply_disabled) {
+    return "Responde la IA. Clic para pausarla y responder tú.";
+  }
+
+  const reason = conversation.ai_handoff_reason;
+  if (reason === "model") {
+    return "La IA solicitó atención humana. Clic para devolverle la conversación.";
+  }
+  if (reason === "empty_response") {
+    return "La IA no pudo generar una respuesta y cedió la conversación. Clic para reactivarla.";
+  }
+  if (reason === "manual") {
+    return "Pausada manualmente. Clic para que vuelva a responder la IA.";
+  }
+  return "Respondes tú (IA en pausa). Clic para que responda la IA.";
+}
 
 export function MessageThread({
   conversation,
@@ -591,13 +617,28 @@ export function MessageThread({
     // owns the thread. The button flips it — and it's the way to hand a
     // conversation back to the AI after a model handoff muted it.
     const nextDisabled = !conversation.ai_autoreply_disabled;
+    const handoffAt = nextDisabled ? new Date().toISOString() : null;
+    const handoffReason: AiHandoffReason | null = nextDisabled ? "manual" : null;
     const supabase = createClient();
-    await supabase
+    const { error } = await supabase
       .from("conversations")
-      .update({ ai_autoreply_disabled: nextDisabled })
+      .update({
+        ai_autoreply_disabled: nextDisabled,
+        ai_handoff_at: handoffAt,
+        ai_handoff_reason: handoffReason,
+      })
       .eq("id", conversation.id);
 
-    onAiAutoreplyChange(conversation.id, nextDisabled);
+    if (error) {
+      console.error("Failed to update AI handoff state:", error);
+      toast.error("No se pudo cambiar quién responde esta conversación");
+      return;
+    }
+
+    onAiAutoreplyChange(conversation.id, nextDisabled, {
+      at: handoffAt,
+      reason: handoffReason,
+    });
   }, [conversation, onAiAutoreplyChange]);
 
   const handleOpenTemplates = useCallback(() => {
@@ -937,11 +978,7 @@ export function MessageThread({
             type="button"
             onClick={handleAiToggle}
             aria-pressed={!conversation?.ai_autoreply_disabled}
-            title={
-              conversation?.ai_autoreply_disabled
-                ? "Respondes tú (IA en pausa). Clic para que responda la IA."
-                : "Responde la IA. Clic para pausarla y responder tú."
-            }
+            title={aiModeTitle(conversation)}
             className={cn(
               "inline-flex items-center justify-center h-7 gap-1 px-2 text-xs rounded-md transition-colors hover:bg-muted",
               conversation?.ai_autoreply_disabled

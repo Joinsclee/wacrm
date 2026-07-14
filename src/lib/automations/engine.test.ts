@@ -5,8 +5,10 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 const h = vi.hoisted(() => ({
   state: {
     owned: null as { id: string } | null,
+    ownedError: null as { message: string } | null,
     ownedCustomField: null as { id: string } | null,
     automations: [] as Record<string, unknown>[],
+    automationsError: null as { message: string } | null,
     steps: [] as Record<string, unknown>[],
     fromCalls: [] as string[],
     updateCalls: [] as { table: string; filters: [string, string, unknown][] }[],
@@ -30,7 +32,7 @@ vi.mock("./admin-client", () => {
         return { data: null, error: null };
       }
       // ownership guard / condition read
-      return { data: state.owned, error: null };
+      return { data: state.owned, error: state.ownedError };
     }
     if (table === "custom_fields") {
       // account-scoped ownership lookup for a custom field definition
@@ -43,7 +45,9 @@ vi.mock("./admin-client", () => {
       }
       return { data: null, error: null };
     }
-    if (table === "automations") return { data: state.automations, error: null };
+    if (table === "automations") {
+      return { data: state.automations, error: state.automationsError };
+    }
     if (table === "automation_logs") {
       if (type === "insert") return { data: { id: "log1" }, error: null };
       if (type === "update") return { data: null, error: null };
@@ -101,8 +105,10 @@ const ACCOUNT = "acct-1";
 
 beforeEach(() => {
   h.state.owned = null;
+  h.state.ownedError = null;
   h.state.ownedCustomField = null;
   h.state.automations = [];
+  h.state.automationsError = null;
   h.state.steps = [];
   h.state.fromCalls = [];
   h.state.updateCalls = [];
@@ -117,7 +123,7 @@ describe("runAutomationsForTrigger — tenant isolation", () => {
     h.state.automations = [automationWithUpdateStep()];
     h.state.steps = [updateStep()];
 
-    await runAutomationsForTrigger({
+    const result = await runAutomationsForTrigger({
       accountId: ACCOUNT,
       triggerType: "new_message_received",
       contactId: "victim-contact-uuid",
@@ -128,6 +134,7 @@ describe("runAutomationsForTrigger — tenant isolation", () => {
     expect(h.state.fromCalls).toContain("contacts");
     expect(h.state.fromCalls).not.toContain("automations");
     expect(h.state.updateCalls).toHaveLength(0);
+    expect(result).toEqual({ matched: 0, failed: true });
   });
 
   it("proceeds past the guard when the contact belongs to the account", async () => {
@@ -160,6 +167,63 @@ describe("runAutomationsForTrigger — tenant isolation", () => {
     const filters = h.state.updateCalls[0].filters;
     expect(filters).toContainEqual(["eq", "id", "c1"]);
     expect(filters).toContainEqual(["eq", "account_id", ACCOUNT]);
+  });
+});
+
+describe("runAutomationsForTrigger — dispatch result", () => {
+  it("returns zero matches when no active automation exists", async () => {
+    h.state.owned = { id: "c1" };
+
+    const result = await runAutomationsForTrigger({
+      accountId: ACCOUNT,
+      triggerType: "new_message_received",
+      contactId: "c1",
+      context: { message_text: "hola" },
+    });
+
+    expect(result).toEqual({ matched: 0, failed: false });
+  });
+
+  it("counts only keyword automations whose trigger configuration matches", async () => {
+    h.state.owned = { id: "c1" };
+    h.state.automations = [
+      automationWithKeyword(["ventas"], "exact"),
+      automationWithKeyword(["hola"], "contains", "a2"),
+    ];
+
+    const result = await runAutomationsForTrigger({
+      accountId: ACCOUNT,
+      triggerType: "keyword_match",
+      contactId: "c1",
+      context: { message_text: "Hola equipo" },
+    });
+
+    expect(result).toEqual({ matched: 1, failed: false });
+  });
+
+  it("reports an ownership lookup failure without throwing", async () => {
+    h.state.ownedError = { message: "database unavailable" };
+
+    await expect(
+      runAutomationsForTrigger({
+        accountId: ACCOUNT,
+        triggerType: "new_message_received",
+        contactId: "c1",
+      }),
+    ).resolves.toEqual({ matched: 0, failed: true });
+  });
+
+  it("reports an automation fetch failure without throwing", async () => {
+    h.state.owned = { id: "c1" };
+    h.state.automationsError = { message: "database unavailable" };
+
+    await expect(
+      runAutomationsForTrigger({
+        accountId: ACCOUNT,
+        triggerType: "new_message_received",
+        contactId: "c1",
+      }),
+    ).resolves.toEqual({ matched: 0, failed: true });
   });
 });
 
@@ -231,6 +295,25 @@ function automationWithUpdateStep() {
     user_id: "u1",
     trigger_type: "new_message_received",
     trigger_config: {},
+    is_active: true,
+  };
+}
+
+function automationWithKeyword(
+  keywords: string[],
+  matchType: "exact" | "contains",
+  id = "a1",
+) {
+  return {
+    id,
+    account_id: ACCOUNT,
+    user_id: "u1",
+    trigger_type: "keyword_match",
+    trigger_config: {
+      keywords,
+      match_type: matchType,
+      case_sensitive: false,
+    },
     is_active: true,
   };
 }

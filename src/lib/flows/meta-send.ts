@@ -32,6 +32,25 @@ import { supabaseAdmin } from './admin-client'
 // keeps the foundation PR self-contained and unit-testable.
 // ------------------------------------------------------------
 
+export type AiReplySendPermitFailure = 'durable_guard' | 'reply_cap'
+
+export class AiReplySendNotPermittedError extends Error {
+  constructor(public readonly reason: AiReplySendPermitFailure) {
+    super(
+      reason === 'durable_guard'
+        ? 'durable AI reply send permit was refused'
+        : 'AI reply cap was reached',
+    )
+    this.name = 'AiReplySendNotPermittedError'
+  }
+}
+
+export interface AiReplySendGuard {
+  maxReplies: number
+  /** Queue callers atomically revalidate generation/state + claim the cap. */
+  beforeFirstMetaRequest?: () => Promise<boolean>
+}
+
 interface SendTextEngineArgs {
   /** Account-level tenancy key. Drives contact + whatsapp_config
    *  lookups so a flow authored by user A still sends through the
@@ -44,6 +63,8 @@ interface SendTextEngineArgs {
   conversationId: string
   contactId: string
   text: string
+  /** Present only for the AI auto-reply path. Flow sends remain unchanged. */
+  aiReplyGuard?: AiReplySendGuard
 }
 
 /**
@@ -100,6 +121,36 @@ export async function engineSendText(
   }
 
   const variants = phoneVariants(sanitized)
+
+  // All fallible local preflight is complete. Claim the AI reply permit at
+  // the last possible point before the first irreversible Meta request.
+  // Queue callers use one DB transaction for current-state validation, cap
+  // claim and generation reservation; direct callers still claim the
+  // account-scoped cap here rather than earlier during model generation.
+  if (args.aiReplyGuard) {
+    if (args.aiReplyGuard.beforeFirstMetaRequest) {
+      const permitted = await args.aiReplyGuard.beforeFirstMetaRequest()
+      if (!permitted) {
+        throw new AiReplySendNotPermittedError('durable_guard')
+      }
+    } else {
+      const { data: claimed, error: claimError } = await db.rpc(
+        'claim_ai_reply_slot_for_account',
+        {
+          p_account_id: args.accountId,
+          p_conversation_id: args.conversationId,
+          p_max_replies: args.aiReplyGuard.maxReplies,
+        },
+      )
+      if (claimError) {
+        throw new Error(`AI reply slot claim failed: ${claimError.message}`)
+      }
+      if (claimed !== true) {
+        throw new AiReplySendNotPermittedError('reply_cap')
+      }
+    }
+  }
+
   let workingPhone = sanitized
   let waMessageId = ''
   let lastError: unknown = null

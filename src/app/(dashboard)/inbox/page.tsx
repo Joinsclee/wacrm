@@ -542,17 +542,36 @@ export default function InboxPage() {
   );
 
   const handleAiAutoreplyChange = useCallback(
-    (conversationId: string, disabled: boolean) => {
+    (
+      conversationId: string,
+      disabled: boolean,
+      handoff: {
+        at: string | null;
+        reason: Conversation["ai_handoff_reason"];
+      },
+    ) => {
       setConversations((prev) =>
         prev.map((c) =>
           c.id === conversationId
-            ? { ...c, ai_autoreply_disabled: disabled }
+            ? {
+                ...c,
+                ai_autoreply_disabled: disabled,
+                ai_handoff_at: handoff.at,
+                ai_handoff_reason: handoff.reason,
+              }
             : c
         )
       );
       if (activeConversation?.id === conversationId) {
         setActiveConversation((prev) =>
-          prev ? { ...prev, ai_autoreply_disabled: disabled } : prev
+          prev
+            ? {
+                ...prev,
+                ai_autoreply_disabled: disabled,
+                ai_handoff_at: handoff.at,
+                ai_handoff_reason: handoff.reason,
+              }
+            : prev
         );
       }
     },

@@ -12,6 +12,9 @@
 
 # testing
 /coverage
+/playwright-report
+/test-results
+/blob-report
 
 # next.js
 /.next/
@@ -42,3 +45,6 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Supabase CLI state
+/supabase/.temp/

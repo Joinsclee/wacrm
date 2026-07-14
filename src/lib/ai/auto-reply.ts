@@ -5,9 +5,15 @@ import { retrieveKnowledge } from './knowledge'
 import { generateReply } from './generate'
 import { buildSystemPrompt, type AgentStage } from './defaults'
 import { latestUserMessage } from './query'
-import { engineSendText, engineSendTypingIndicator } from '@/lib/flows/meta-send'
+import {
+  AiReplySendNotPermittedError,
+  engineSendText,
+  engineSendTypingIndicator,
+} from '@/lib/flows/meta-send'
 
-interface DispatchArgs {
+export type AiHandoffReason = 'model' | 'empty_response'
+
+export interface DispatchArgs {
   /** Tenancy key — drives config, contact, and whatsapp_config lookups. */
   accountId: string
   conversationId: string
@@ -19,17 +25,48 @@ interface DispatchArgs {
    *  receipt) to the customer while the model generates. Optional so
    *  non-webhook callers can omit it. */
   inboundMessageId?: string
+  /**
+   * Durable queue fence called only for a text response, immediately before
+   * the existing atomic reply-cap claim + Meta send. Returning false means
+   * a newer generation or another worker owns the send, so this invocation
+   * must stop without consuming a reply slot.
+   */
+  beforeSend?: () => Promise<boolean>
+  /**
+   * Queue-owned atomic handoff commit. It validates the current lock and
+   * generation while setting `ai_autoreply_disabled`; unlike beforeSend it
+   * never reserves an external-send permit. Optional for direct/test callers.
+   */
+  commitHandoff?: (reason: AiHandoffReason) => Promise<boolean>
 }
+
+export type AiAutoReplyDispatchResult =
+  | { status: 'sent' }
+  | {
+      status: 'skipped'
+      reason:
+        | 'not_configured'
+        | 'auto_reply_disabled'
+        | 'conversation_missing'
+        | 'human_assigned'
+        | 'conversation_disabled'
+        | 'reply_cap'
+        | 'no_context'
+        | 'superseded'
+    }
+  | { status: 'handoff' }
+  | { status: 'failed'; error: string; retryable: boolean }
 
 const TAG = '[ai auto-reply]'
 
 /**
  * AI auto-reply for a freshly-arrived inbound message.
  *
- * Invoked from the WhatsApp webhook's `after()` block, only when no
- * deterministic flow consumed the message (flows win). Mirrors the flow
- * runner's contract: it owns its try/catch and NEVER throws — a failing
- * or slow LLM call must not affect the webhook's 200 to Meta.
+ * Invoked by the durable AI-reply job worker after the WhatsApp webhook
+ * has respected deterministic Flow precedence and enqueued the inbound.
+ * Mirrors the flow runner's contract: it owns its try/catch and NEVER
+ * throws — a failing or slow LLM call must not affect the webhook's 200
+ * to Meta.
  *
  * Every early-exit path logs its reason under the `[ai auto-reply]`
  * prefix. These gates used to `return` silently, which made "the bot
@@ -40,7 +77,6 @@ const TAG = '[ai auto-reply]'
  *
  * Eligibility gates (any → logged no-op):
  *   - AI off / auto-reply disabled for the account
- *   - an active message-level automation is handling replies
  *   - a human agent is assigned (they own the thread)
  *   - auto-reply was disabled for this conversation (prior handoff)
  *   - the per-conversation reply cap is reached
@@ -52,10 +88,19 @@ const TAG = '[ai auto-reply]'
  */
 export async function dispatchInboundToAiReply(
   args: DispatchArgs,
-): Promise<void> {
-  const { accountId, conversationId, contactId, configOwnerUserId, inboundMessageId } = args
+): Promise<AiAutoReplyDispatchResult> {
+  const {
+    accountId,
+    conversationId,
+    contactId,
+    configOwnerUserId,
+    inboundMessageId,
+    beforeSend,
+    commitHandoff,
+  } = args
   // Short id for readable, greppable per-thread logs.
   const cid = conversationId.slice(0, 8)
+  let sendReserved = false
 
   try {
     const db = supabaseAdmin()
@@ -63,55 +108,35 @@ export async function dispatchInboundToAiReply(
     const config = await loadAiConfig(db, accountId)
     if (!config) {
       console.log(`${TAG} ${cid} skip: no AI config or master switch off`)
-      return
+      return { status: 'skipped', reason: 'not_configured' }
     }
     if (!config.autoReplyEnabled) {
       console.log(`${TAG} ${cid} skip: auto_reply_enabled is off`)
-      return
-    }
-
-    // Deterministic, user-configured responders win over the LLM — the
-    // caller already excludes messages a Flow consumed. Message-level
-    // automations (`new_message_received` / `keyword_match`) are
-    // dispatched independently for this same inbound and may send their
-    // own reply, so if the account has any active one we stand down to
-    // avoid double-texting the customer. (Relationship triggers like
-    // `first_inbound_message` don't count — they're not per-message
-    // auto-responders.)
-    const { data: autoResponders } = await db
-      .from('automations')
-      .select('id')
-      .eq('account_id', accountId)
-      .eq('is_active', true)
-      .in('trigger_type', ['new_message_received', 'keyword_match'])
-      .limit(1)
-    if (autoResponders && autoResponders.length > 0) {
-      console.log(
-        `${TAG} ${cid} skip: an active message automation is handling replies (standing down to avoid double-texting)`,
-      )
-      return
+      return { status: 'skipped', reason: 'auto_reply_disabled' }
     }
 
     const { data: conv, error: convErr } = await db
       .from('conversations')
       .select('assigned_agent_id, ai_autoreply_disabled, ai_reply_count, ai_stage')
       .eq('id', conversationId)
+      .eq('account_id', accountId)
       .maybeSingle()
-    if (convErr || !conv) {
-      console.warn(
-        `${TAG} ${cid} skip: conversation not found${convErr ? ` (${convErr.message})` : ''}`,
-      )
-      return
+    if (convErr) {
+      throw new Error(`conversation lookup failed: ${convErr.message}`)
+    }
+    if (!conv) {
+      console.warn(`${TAG} ${cid} skip: conversation not found`)
+      return { status: 'skipped', reason: 'conversation_missing' }
     }
     if (conv.assigned_agent_id) {
       console.log(`${TAG} ${cid} skip: a human agent is assigned to this thread`)
-      return
+      return { status: 'skipped', reason: 'human_assigned' }
     }
     if (conv.ai_autoreply_disabled) {
       console.log(
         `${TAG} ${cid} skip: auto-reply disabled on this conversation (prior handoff/opt-out)`,
       )
-      return
+      return { status: 'skipped', reason: 'conversation_disabled' }
     }
     // Cheap early-out; the authoritative cap check is the atomic claim
     // below (this read can race a concurrent inbound).
@@ -119,7 +144,7 @@ export async function dispatchInboundToAiReply(
       console.log(
         `${TAG} ${cid} skip: reply cap reached (${conv.ai_reply_count}/${config.autoReplyMaxPerConversation})`,
       )
-      return
+      return { status: 'skipped', reason: 'reply_cap' }
     }
 
     // Show a "typing…" bubble to the customer (and mark their message
@@ -137,7 +162,7 @@ export async function dispatchInboundToAiReply(
     const messages = await buildConversationContext(db, conversationId)
     if (messages.length === 0) {
       console.warn(`${TAG} ${cid} skip: no text messages to build context from`)
-      return
+      return { status: 'skipped', reason: 'no_context' }
     }
 
     // Ground the reply in the account's knowledge base (best-effort).
@@ -169,36 +194,35 @@ export async function dispatchInboundToAiReply(
     })
 
     if (handoff || !text) {
+      const handoffReason: AiHandoffReason = handoff
+        ? 'model'
+        : 'empty_response'
       // The model can't (or shouldn't) answer — stop auto-replying on
       // this thread and leave the inbound unanswered so it surfaces in
       // the inbox for a human. Sticky until an admin re-enables.
       console.log(
         `${TAG} ${cid} ${handoff ? 'model requested handoff' : 'model returned empty text'} → disabling auto-reply on this conversation and leaving it for a human`,
       )
-      await db
-        .from('conversations')
-        .update({ ai_autoreply_disabled: true })
-        .eq('id', conversationId)
-      return
-    }
-
-    // Atomically claim a reply slot: the cap check + increment happen in
-    // one UPDATE, so concurrent inbounds can never overshoot the cap. If
-    // another inbound just took the last slot, `claimed` is false and we
-    // skip the send. (We consume a slot slightly before the send lands —
-    // fail-safe: under-reply rather than over-reply.)
-    const { data: claimed, error: claimErr } = await db.rpc(
-      'claim_ai_reply_slot',
-      {
-        conversation_id: conversationId,
-        max_replies: config.autoReplyMaxPerConversation,
-      },
-    )
-    if (claimErr || claimed !== true) {
-      console.log(
-        `${TAG} ${cid} skip: could not claim a reply slot${claimErr ? ` (${claimErr.message})` : ' (cap hit by a concurrent inbound)'}`,
-      )
-      return
+      if (commitHandoff) {
+        const committed = await commitHandoff(handoffReason)
+        if (!committed) {
+          console.log(
+            `${TAG} ${cid} skip: durable job claim was superseded before handoff`,
+          )
+          return { status: 'skipped', reason: 'superseded' }
+        }
+      } else {
+        await db
+          .from('conversations')
+          .update({
+            ai_autoreply_disabled: true,
+            ai_handoff_at: new Date().toISOString(),
+            ai_handoff_reason: handoffReason,
+          })
+          .eq('id', conversationId)
+          .eq('account_id', accountId)
+      }
+      return { status: 'handoff' }
     }
 
     await engineSendText({
@@ -207,6 +231,16 @@ export async function dispatchInboundToAiReply(
       conversationId,
       contactId,
       text,
+      aiReplyGuard: {
+        maxReplies: config.autoReplyMaxPerConversation,
+        beforeFirstMetaRequest: beforeSend
+          ? async () => {
+              const permitted = await beforeSend()
+              sendReserved = permitted
+              return permitted
+            }
+          : undefined,
+      },
     })
     console.log(`${TAG} ${cid} sent ✓ (stage: ${stage})`)
 
@@ -218,13 +252,27 @@ export async function dispatchInboundToAiReply(
         .from('conversations')
         .update({ ai_stage: 'closer' })
         .eq('id', conversationId)
+        .eq('account_id', accountId)
       if (stageErr) {
         console.warn(`${TAG} ${cid} could not promote to closer: ${stageErr.message}`)
       } else {
         console.log(`${TAG} ${cid} lead qualified → promoted to closer mode`)
       }
     }
+    return { status: 'sent' }
   } catch (err) {
+    if (err instanceof AiReplySendNotPermittedError) {
+      const reason = err.reason === 'reply_cap' ? 'reply_cap' : 'superseded'
+      console.log(`${TAG} ${cid} skip: ${err.message}`)
+      return { status: 'skipped', reason }
+    }
     console.error(`${TAG} ${cid} dispatch failed:`, err)
+    return {
+      status: 'failed',
+      error: err instanceof Error ? err.message : String(err),
+      // Safe to retry only before the durable send reservation. Once the
+      // permit exists, Meta may already have accepted the message.
+      retryable: !sendReserved,
+    }
   }
 }

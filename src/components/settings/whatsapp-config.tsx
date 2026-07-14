@@ -32,7 +32,11 @@ import type { WhatsAppConfig as WhatsAppConfigType } from '@/types';
 
 const MASKED_TOKEN = '••••••••••••••••';
 
-type ConnectionStatus = 'connected' | 'disconnected' | 'unknown';
+type ConnectionStatus =
+  | 'connected'
+  | 'disconnected'
+  | 'reconnect_required'
+  | 'unknown';
 type ResetReason = 'token_corrupted' | 'meta_api_error' | null;
 
 export function WhatsAppConfig() {
@@ -142,7 +146,9 @@ export function WhatsAppConfig() {
             setResetReason(null);
             setStatusMessage('');
           } else {
-            setConnectionStatus('disconnected');
+            setConnectionStatus(
+              payload.reconnect_required ? 'reconnect_required' : 'disconnected',
+            );
             setResetReason(payload.needs_reset ? 'token_corrupted' : payload.reason === 'meta_api_error' ? 'meta_api_error' : null);
             setStatusMessage(payload.message || '');
           }
@@ -291,7 +297,9 @@ export function WhatsAppConfig() {
             : 'Conexión con la API exitosa'
         );
       } else {
-        setConnectionStatus('disconnected');
+        setConnectionStatus(
+          payload.reconnect_required ? 'reconnect_required' : 'disconnected',
+        );
         setResetReason(payload.needs_reset ? 'token_corrupted' : payload.reason === 'meta_api_error' ? 'meta_api_error' : null);
         setStatusMessage(payload.message || '');
         toast.error(payload.message || 'Falló la conexión con la API');
@@ -384,6 +392,7 @@ export function WhatsAppConfig() {
   }
 
   const showResetBanner = resetReason === 'token_corrupted';
+  const reconnectRequired = connectionStatus === 'reconnect_required';
 
   return (
     <section className="animate-in fade-in-50 duration-200">
@@ -430,20 +439,39 @@ export function WhatsAppConfig() {
         )}
 
         {/* Connection Status */}
-        <Alert className="bg-card border-border">
+        <Alert
+          className={
+            reconnectRequired
+              ? 'bg-amber-950/30 border-amber-700/50'
+              : 'bg-card border-border'
+          }
+        >
           <div className="flex items-center gap-2">
             {connectionStatus === 'connected' ? (
               <CheckCircle2 className="size-4 text-primary" />
+            ) : reconnectRequired ? (
+              <AlertTriangle className="size-4 text-amber-400" />
             ) : (
               <XCircle className="size-4 text-red-500" />
             )}
-            <AlertTitle className="text-foreground mb-0">
-              {connectionStatus === 'connected' ? 'Credenciales válidas' : 'No conectado'}
+            <AlertTitle
+              className={reconnectRequired ? 'text-amber-200 mb-0' : 'text-foreground mb-0'}
+            >
+              {connectionStatus === 'connected'
+                ? 'Credenciales válidas'
+                : reconnectRequired
+                  ? 'Requiere reconexión'
+                  : 'No conectado'}
             </AlertTitle>
           </div>
-          <AlertDescription className="text-muted-foreground">
+          <AlertDescription
+            className={reconnectRequired ? 'text-amber-100/80' : 'text-muted-foreground'}
+          >
             {connectionStatus === 'connected'
               ? 'Tu token de acceso se autentica con Meta. Consulta el estado de registro más abajo para saber si los webhooks están realmente conectados.'
+              : reconnectRequired
+                ? statusMessage ||
+                  'Meta ya no acepta las credenciales guardadas. Ingresa un token de acceso válido y guarda la configuración para reconectar.'
               : statusMessage ||
                 'Configura tus credenciales de la API de Meta más abajo para conectar tu cuenta de WhatsApp Business.'}
           </AlertDescription>

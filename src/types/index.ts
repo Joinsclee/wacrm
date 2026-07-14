@@ -146,6 +146,7 @@ export interface ContactNote {
 }
 
 export type ConversationStatus = 'open' | 'pending' | 'closed';
+export type AiHandoffReason = 'model' | 'empty_response' | 'manual';
 
 export interface Conversation {
   id: string;
@@ -157,6 +158,10 @@ export interface Conversation {
    *  human owns the thread (also set by a model handoff). Toggled from
    *  the thread header. */
   ai_autoreply_disabled?: boolean;
+  /** Timestamp of the latest explicit transfer from AI to a human. */
+  ai_handoff_at?: string | null;
+  /** Why the latest transfer happened; cleared when an agent re-enables AI. */
+  ai_handoff_reason?: AiHandoffReason | null;
   last_message_text?: string;
   last_message_at?: string;
   unread_count: number;
@@ -253,6 +258,10 @@ export interface WhatsAppConfig {
   subscribed_apps_at?: string;
   /** Last error from /register; cleared on success. */
   last_registration_error?: string;
+  /** Set when saved credentials need to be replaced by an administrator. */
+  reconnect_required_at?: string | null;
+  /** Last non-transient credential failure; cleared after recovery. */
+  last_connection_error?: string | null;
 }
 
 // Raw Meta status enum. We persist this verbatim from Meta (sync + webhook)

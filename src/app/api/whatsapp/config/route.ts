@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createClient as createAdminClient } from '@supabase/supabase-js'
 import {
+  isMetaCredentialError,
   registerPhoneNumber,
   subscribeWabaToApp,
   verifyPhoneNumber,
@@ -47,6 +48,50 @@ function supabaseAdmin() {
   return _adminClient
 }
 
+type ConnectionStateUpdate = {
+  status: 'connected' | 'disconnected'
+  reconnect_required_at: string | null
+  last_connection_error: string | null
+}
+
+/**
+ * Persist health state without letting an observability write turn a
+ * successful health probe into a failed request. The service-role client is
+ * intentional: the authenticated caller may be an account viewer, while the
+ * row is still scoped to the account resolved from that caller's profile.
+ */
+async function persistConnectionStateBestEffort(
+  accountId: string,
+  update: ConnectionStateUpdate,
+): Promise<void> {
+  try {
+    const { error } = await supabaseAdmin()
+      .from('whatsapp_config')
+      .update(update)
+      .eq('account_id', accountId)
+
+    if (error) {
+      console.error('[whatsapp/config GET] Failed to persist connection state:', error)
+    }
+  } catch (error) {
+    console.error('[whatsapp/config GET] Connection state persistence failed:', error)
+  }
+}
+
+function reconnectRequiredState(message: string): ConnectionStateUpdate {
+  return {
+    status: 'disconnected',
+    reconnect_required_at: new Date().toISOString(),
+    last_connection_error: message.slice(0, 2000),
+  }
+}
+
+const CONNECTED_STATE: ConnectionStateUpdate = {
+  status: 'connected',
+  reconnect_required_at: null,
+  last_connection_error: null,
+}
+
 /**
  * GET /api/whatsapp/config
  *
@@ -78,6 +123,7 @@ export async function GET() {
       return NextResponse.json(
         {
           connected: false,
+          reconnect_required: false,
           reason: 'no_account',
           message: 'Your profile is not linked to an account.',
         },
@@ -87,14 +133,21 @@ export async function GET() {
 
     const { data: config, error: configError } = await supabase
       .from('whatsapp_config')
-      .select('phone_number_id, access_token, status')
+      .select(
+        'phone_number_id, access_token, status, reconnect_required_at, last_connection_error',
+      )
       .eq('account_id', accountId)
       .maybeSingle()
 
     if (configError) {
       console.error('Error fetching whatsapp_config:', configError)
       return NextResponse.json(
-        { connected: false, reason: 'db_error', message: 'Failed to fetch configuration' },
+        {
+          connected: false,
+          reconnect_required: false,
+          reason: 'db_error',
+          message: 'Failed to fetch configuration',
+        },
         { status: 200 }
       )
     }
@@ -103,6 +156,7 @@ export async function GET() {
       return NextResponse.json(
         {
           connected: false,
+          reconnect_required: false,
           reason: 'no_config',
           message: 'No WhatsApp configuration saved yet. Fill in the form and click Save Configuration.',
         },
@@ -117,9 +171,15 @@ export async function GET() {
       accessToken = decrypt(config.access_token)
     } catch (err) {
       console.error('[whatsapp/config GET] Token decryption failed:', err)
+      const storedError = 'The stored WhatsApp access token could not be decrypted.'
+      await persistConnectionStateBestEffort(
+        accountId,
+        reconnectRequiredState(storedError),
+      )
       return NextResponse.json(
         {
           connected: false,
+          reconnect_required: true,
           reason: 'token_corrupted',
           needs_reset: true,
           message:
@@ -135,15 +195,41 @@ export async function GET() {
         phoneNumberId: config.phone_number_id,
         accessToken,
       })
-      return NextResponse.json({ connected: true, phone_info: phoneInfo })
+      await persistConnectionStateBestEffort(accountId, CONNECTED_STATE)
+      return NextResponse.json({
+        connected: true,
+        reconnect_required: false,
+        phone_info: phoneInfo,
+      })
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Unknown Meta API error'
       console.error('[whatsapp/config GET] Meta API verification failed:', message)
+
+      const currentCredentialFailure = isMetaCredentialError(err)
+      const reconnectRequired =
+        currentCredentialFailure || !!config.reconnect_required_at
+      if (currentCredentialFailure) {
+        await persistConnectionStateBestEffort(
+          accountId,
+          reconnectRequiredState(message),
+        )
+      }
+
+      // A temporary Meta/network failure must not erase a previously
+      // persisted credential incident. Only a successful verification or a
+      // credential save clears that state.
+      const reconnectMessage = currentCredentialFailure
+        ? message
+        : config.last_connection_error || message
+
       return NextResponse.json(
         {
           connected: false,
+          reconnect_required: reconnectRequired,
           reason: 'meta_api_error',
-          message: `Meta API rejected the credentials: ${message}`,
+          message: reconnectRequired
+            ? `Meta API rejected the credentials: ${reconnectMessage}`
+            : `Meta API could not be reached or returned a temporary error: ${message}`,
         },
         { status: 200 }
       )
@@ -151,7 +237,12 @@ export async function GET() {
   } catch (error) {
     console.error('Error in WhatsApp config GET:', error)
     return NextResponse.json(
-      { connected: false, reason: 'unknown', message: 'Internal server error' },
+      {
+        connected: false,
+        reconnect_required: false,
+        reason: 'unknown',
+        message: 'Internal server error',
+      },
       { status: 500 }
     )
   }
@@ -363,6 +454,8 @@ export async function POST(request: Request) {
       registered_at: registrationError ? null : registeredAt,
       subscribed_apps_at: subscribedAppsAt ?? null,
       last_registration_error: registrationError,
+      reconnect_required_at: null,
+      last_connection_error: null,
       updated_at: new Date().toISOString(),
     }
 

@@ -20,13 +20,16 @@ interface Script {
   insertedContactId?: string; // contacts insert -> single
   insertContactError?: { code?: string } | null;
   existingConversation?: { id: string } | null; // conversations select.maybeSingle
+  existingConversationsByCall?: Array<{ id: string } | null>;
   insertedConversationId?: string; // conversations insert -> single
+  insertConversationError?: { code?: string } | null;
 }
 
 function makeDb(script: Script): SupabaseClient {
   let table = '';
   let mode: 'select' | 'insert' | 'update' = 'select';
   let likeCalls = 0;
+  let conversationLookupCalls = 0;
 
   const builder: Record<string, unknown> = {
     select: () => builder,
@@ -49,11 +52,17 @@ function makeDb(script: Script): SupabaseClient {
     maybeSingle: () => {
       if (table === 'whatsapp_config')
         return Promise.resolve({ data: script.config ?? null, error: null });
-      if (table === 'conversations' && mode === 'select')
+      if (table === 'conversations' && mode === 'select') {
+        const data = script.existingConversationsByCall
+          ? (script.existingConversationsByCall[conversationLookupCalls] ??
+            null)
+          : (script.existingConversation ?? null);
+        conversationLookupCalls++;
         return Promise.resolve({
-          data: script.existingConversation ?? null,
+          data,
           error: null,
         });
+      }
       return Promise.resolve({ data: null, error: null });
     },
     single: () => {
@@ -68,11 +77,18 @@ function makeDb(script: Script): SupabaseClient {
           error: null,
         });
       }
-      if (table === 'conversations' && mode === 'insert')
+      if (table === 'conversations' && mode === 'insert') {
+        if (script.insertConversationError) {
+          return Promise.resolve({
+            data: null,
+            error: script.insertConversationError,
+          });
+        }
         return Promise.resolve({
           data: { id: script.insertedConversationId },
           error: null,
         });
+      }
       return Promise.resolve({ data: null, error: null });
     },
     // Thenable: `await db.from().update().eq()` lands here.
@@ -167,5 +183,26 @@ describe('resolveConversationByPhone', () => {
     expect(res.contactId).toBe('c-raced');
     expect(res.contactCreated).toBe(false);
     expect(res.conversationId).toBe('cv-raced');
+  });
+
+  it('re-resolves the conversation when its insert loses a unique race', async () => {
+    const db = makeDb({
+      config: { user_id: 'owner-1' },
+      contactCandidates: [{ id: 'c1', phone: '14155550123' }],
+      existingConversationsByCall: [null, { id: 'cv-raced' }],
+      insertConversationError: { code: '23505' },
+    });
+
+    const res = await resolveConversationByPhone(
+      db,
+      'acct',
+      '+14155550123'
+    );
+
+    expect(res).toEqual({
+      conversationId: 'cv-raced',
+      contactId: 'c1',
+      contactCreated: false,
+    });
   });
 });

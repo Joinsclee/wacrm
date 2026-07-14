@@ -7,7 +7,16 @@ import { findExistingContact, isUniqueViolation } from '@/lib/contacts/dedupe'
 import { verifyMetaWebhookSignature } from '@/lib/whatsapp/webhook-signature'
 import { runAutomationsForTrigger } from '@/lib/automations/engine'
 import { dispatchInboundToFlows } from '@/lib/flows/engine'
-import { dispatchInboundToAiReply } from '@/lib/ai/auto-reply'
+import {
+  automationResultsBlockAi,
+  isInboundEligibleForAi,
+} from '@/lib/ai/inbound-precedence'
+import {
+  drainAiReplyJobs,
+  enqueueInboundAiReply,
+  invalidateAiReplyJob,
+  waitUntilAiReplyDue,
+} from '@/lib/ai/auto-reply-queue'
 import { dispatchWebhookEvent } from '@/lib/webhooks/deliver'
 import {
   handleTemplateWebhookChange,
@@ -84,6 +93,13 @@ interface WhatsAppWebhookEntry {
     }
     field: string
   }>
+}
+
+interface WebhookConfigRow {
+  account_id: string
+  user_id: string
+  access_token: string
+  phone_number_id: string
 }
 
 // GET - Webhook verification
@@ -235,54 +251,29 @@ async function processWebhook(body: { entry?: WhatsAppWebhookEntry[] }) {
 
       const value = change.value
 
+      const hasStatuses = (value.statuses?.length ?? 0) > 0
+      const hasInboundMessages =
+        (value.messages?.length ?? 0) > 0 &&
+        (value.contacts?.length ?? 0) > 0
+      if (!hasStatuses && !hasInboundMessages) continue
+
+      // Both delivery statuses and inbound messages belong to the business
+      // number in metadata. Resolve that account before touching any row;
+      // Meta message ids are not a tenancy boundary and may repeat across
+      // numbers/accounts.
+      const phoneNumberId = value.metadata.phone_number_id
+      const config = await resolveWebhookConfig(phoneNumberId)
+      if (!config) continue
+
       // Handle status updates
       if (value.statuses) {
         for (const status of value.statuses) {
-          await handleStatusUpdate(status)
+          await handleStatusUpdate(status, config.account_id)
         }
       }
 
       // Handle incoming messages
       if (!value.messages || !value.contacts) continue
-
-      const phoneNumberId = value.metadata.phone_number_id
-
-      // Find user's config by phone_number_id. `.single()` returns
-      // PGRST116 for both 0 rows AND ≥2 rows — distinguish them so
-      // operators see the real cause in logs. ≥2 rows shouldn't happen
-      // post-migration 013 (UNIQUE constraint), but a row created
-      // before the constraint, or a race, would still surface here.
-      const { data: configRows, error: configError } = await supabaseAdmin()
-        .from('whatsapp_config')
-        .select('*')
-        .eq('phone_number_id', phoneNumberId)
-
-      if (configError) {
-        console.error(
-          'Error fetching whatsapp_config for phone_number_id:',
-          phoneNumberId,
-          configError
-        )
-        continue
-      }
-
-      if (!configRows || configRows.length === 0) {
-        console.error('No config found for phone_number_id:', phoneNumberId)
-        continue
-      }
-
-      if (configRows.length > 1) {
-        console.error(
-          `Multiple configs (${configRows.length}) found for phone_number_id:`,
-          phoneNumberId,
-          '— inbound message dropped. Resolve duplicates so each number maps to a single account.',
-          'Account owners:',
-          configRows.map((r: { account_id: string; user_id: string }) => `${r.account_id} (admin ${r.user_id})`)
-        )
-        continue
-      }
-
-      const config = configRows[0]
 
       const decryptedAccessToken = decrypt(config.access_token)
 
@@ -305,6 +296,47 @@ async function processWebhook(body: { entry?: WhatsAppWebhookEntry[] }) {
       }
     }
   }
+}
+
+async function resolveWebhookConfig(
+  phoneNumberId: string,
+): Promise<WebhookConfigRow | null> {
+  // Avoid `.single()` so 0 rows and a broken pre-migration duplicate can be
+  // diagnosed separately. Migration 013 normally guarantees one row.
+  const { data: configRows, error: configError } = await supabaseAdmin()
+    .from('whatsapp_config')
+    .select('account_id,user_id,access_token,phone_number_id')
+    .eq('phone_number_id', phoneNumberId)
+
+  if (configError) {
+    console.error(
+      'Error fetching whatsapp_config for phone_number_id:',
+      phoneNumberId,
+      configError,
+    )
+    return null
+  }
+
+  if (!configRows || configRows.length === 0) {
+    console.error('No config found for phone_number_id:', phoneNumberId)
+    return null
+  }
+
+  if (configRows.length > 1) {
+    console.error(
+      `Multiple configs (${configRows.length}) found for phone_number_id:`,
+      phoneNumberId,
+      '— webhook change dropped. Resolve duplicates so each number maps to a single account.',
+      'Account owners:',
+      configRows.map(
+        (row: { account_id: string; user_id: string }) =>
+          `${row.account_id} (admin ${row.user_id})`,
+      ),
+    )
+    return null
+  }
+
+  return configRows[0] as WebhookConfigRow
 }
 
 // The happy-path status ladder — pending → sent → delivered → read →
@@ -354,19 +386,30 @@ async function handleStatusUpdate(status: {
   status: string
   timestamp: string
   recipient_id: string
-}) {
-  // 1) Mirror onto messages (legacy behavior) — Meta's status values
-  //    already match the CHECK constraint on messages.status. No
-  //    `.select()`: message_id is NOT unique (migration 009 — Meta ids
-  //    repeat across numbers), so this updates 0..N rows and must not
-  //    assume a single row.
-  const { error: msgErr } = await supabaseAdmin()
-    .from('messages')
-    .update({ status: status.status })
-    .eq('message_id', status.id)
+}, accountId: string) {
+  const db = supabaseAdmin()
 
-  if (msgErr) {
-    console.error('Error updating message status:', msgErr)
+  // 1) Resolve stored messages through their account-owned conversation,
+  //    then update only those ids. message_id alone is not a tenancy key.
+  const { data: messageRows, error: msgLookupErr } = await db
+    .from('messages')
+    .select('id,conversation_id,conversation:conversations!inner(account_id)')
+    .eq('message_id', status.id)
+    .eq('conversation.account_id', accountId)
+
+  if (msgLookupErr) {
+    console.error('Error resolving account message status:', msgLookupErr)
+  } else if (messageRows && messageRows.length > 0) {
+    const { error: msgErr } = await db
+      .from('messages')
+      .update({ status: status.status })
+      .in(
+        'id',
+        messageRows.map((row: { id: string }) => row.id),
+      )
+    if (msgErr) {
+      console.error('Error updating message status:', msgErr)
+    }
   }
 
   // Webhook fan-out for this status change happens at the END of this
@@ -379,10 +422,11 @@ async function handleStatusUpdate(status: {
   //    sent/delivered/read/failed counts automatically.
   const tsIso = new Date(parseInt(status.timestamp) * 1000).toISOString()
 
-  const { data: recipient, error: recFetchErr } = await supabaseAdmin()
+  const { data: recipient, error: recFetchErr } = await db
     .from('broadcast_recipients')
-    .select('id, status')
+    .select('id,status,broadcast:broadcasts!inner(account_id)')
     .eq('whatsapp_message_id', status.id)
+    .eq('broadcast.account_id', accountId)
     .maybeSingle()
 
   if (recFetchErr) {
@@ -398,7 +442,7 @@ async function handleStatusUpdate(status: {
     if (status.status === 'delivered') update.delivered_at = tsIso
     if (status.status === 'read') update.read_at = tsIso
 
-    const { error: recUpdateErr } = await supabaseAdmin()
+    const { error: recUpdateErr } = await db
       .from('broadcast_recipients')
       .update(update)
       .eq('id', recipient.id)
@@ -408,32 +452,15 @@ async function handleStatusUpdate(status: {
     }
   }
 
-  // 3) Webhook fan-out for messages we store (inbox / API sends).
-  //    Runs last so a slow subscriber can't delay the mirrors above.
-  //    Bounded to one row (message_id isn't unique) purely to resolve
-  //    the owning account for delivery.
-  const { data: msgRow } = await supabaseAdmin()
-    .from('messages')
-    .select('conversation_id, conversations(account_id)')
-    .eq('message_id', status.id)
-    .limit(1)
-    .maybeSingle()
-
+  // 3) Webhook fan-out for messages in the already-resolved account. Runs
+  //    last so a slow subscriber cannot delay the status mirrors above.
+  const msgRow = messageRows?.[0]
   if (msgRow) {
-    const conv = msgRow.conversations as { account_id: string } | null
-    const accountId = conv?.account_id
-    if (accountId) {
-      await dispatchWebhookEvent(
-        supabaseAdmin(),
-        accountId,
-        'message.status_updated',
-        {
-          whatsapp_message_id: status.id,
-          conversation_id: msgRow.conversation_id,
-          status: status.status,
-        }
-      )
-    }
+    await dispatchWebhookEvent(db, accountId, 'message.status_updated', {
+      whatsapp_message_id: status.id,
+      conversation_id: msgRow.conversation_id,
+      status: status.status,
+    })
   }
 }
 
@@ -683,6 +710,12 @@ async function processMessage(
   })
 
   if (msgError) {
+    if (msgError.code === '23505') {
+      console.log(
+        `[webhook] duplicate message ignored: ${message.id} in ${conversation.id}`,
+      )
+      return
+    }
     console.error('Error inserting message:', msgError)
     return
   }
@@ -758,8 +791,8 @@ async function processMessage(
   // Fire any automations that react to this webhook event. All dispatches
   // run here (not earlier) so the contact, conversation, and inbound
   // message all exist before any step — including send_message — runs.
-  // Fire-and-forget: a slow or failing automation must not block the
-  // webhook's 200 OK response to Meta.
+  // This function itself runs inside the route's after() callback, so every
+  // dispatch is awaited here without delaying Meta's already-issued 200.
   const inboundText = contentText ?? message.text?.body ?? ''
   const automationTriggers: (
     | 'new_contact_created'
@@ -780,43 +813,99 @@ async function processMessage(
   // listens to only one trigger runs only when that trigger matches.
   if (contactOutcome.wasCreated) automationTriggers.unshift('new_contact_created')
   if (isFirstInboundMessage) automationTriggers.unshift('first_inbound_message')
-  for (const triggerType of automationTriggers) {
-    runAutomationsForTrigger({
-      accountId,
+  const automationResults = await Promise.all(
+    automationTriggers.map(async (triggerType) => ({
       triggerType,
-      contactId: contactRecord.id,
-      context: {
-        message_text: inboundText,
-        conversation_id: conversation.id,
-      },
-    }).catch((err) => console.error('[automations] dispatch failed:', err))
-  }
+      result: await runAutomationsForTrigger({
+        accountId,
+        triggerType,
+        contactId: contactRecord.id,
+        context: {
+          message_text: inboundText,
+          conversation_id: conversation.id,
+        },
+      }),
+    })),
+  )
+  const aiBlockedByAutomation = automationResultsBlockAi(automationResults)
 
-  // AI auto-reply. Runs only for plain-text inbound the deterministic
-  // flow runner did NOT consume (flows win over the LLM), and only when
-  // the account has enabled it. Awaited inside `after()` (same reason as
-  // the webhook dispatch below); `dispatchInboundToAiReply` owns its
-  // eligibility gates + try/catch and never throws.
-  if (!flowConsumed && !interactiveReplyId && inboundText.trim()) {
-    // Log the entry point so an operator can confirm from the container
-    // logs that the webhook's after() block actually reaches the AI step
-    // (the historical failure mode was the block never completing on a
-    // restarting container). The per-gate reasons are logged inside
-    // dispatchInboundToAiReply.
-    console.log(
-      `[webhook] ${conversation.id.slice(0, 8)} handing inbound to AI auto-reply`,
-    )
-    await dispatchInboundToAiReply({
-      accountId,
-      conversationId: conversation.id,
-      contactId: contactRecord.id,
-      configOwnerUserId,
-      inboundMessageId: message.id,
-    })
+  // AI auto-reply. Eligible plain-text inbound is persisted to the durable
+  // coalescing queue only after the deterministic Flow and automation
+  // decisions. Relationship-level automations are awaited above but do not
+  // suppress AI; only matching (or unevaluable) message-level triggers do.
+  //
+  // Supabase `due_at` + generation are the source of truth. The nested
+  // `after()` is only a low-latency attempt to drain this account once the
+  // quiet window closes; the protected cron recovers anything this runtime
+  // cannot finish.
+  const aiEligible = isInboundEligibleForAi({
+    contentType,
+    flowConsumed,
+    interactiveReplyId,
+    text: inboundText,
+    automationBlocked: aiBlockedByAutomation,
+  })
+
+  if (aiEligible) {
+    try {
+      const queued = await enqueueInboundAiReply({
+        accountId,
+        conversationId: conversation.id,
+        contactId: contactRecord.id,
+        configOwnerUserId,
+        inboundMessageId: message.id,
+      })
+
+      if (queued) {
+        console.log(
+          `[webhook] ${conversation.id.slice(0, 8)} AI reply queued ` +
+            `(generation=${queued.generation}, duplicate=${!queued.enqueued})`,
+        )
+
+        // Nested after() is supported by Next.js. Multiple webhook runtimes
+        // may reach this callback; the database claim makes all but one a
+        // no-op, so no process-local debounce state is required.
+        after(async () => {
+          try {
+            await waitUntilAiReplyDue(queued.dueAt)
+            const drained = await drainAiReplyJobs({ accountId, limit: 1 })
+            console.log(
+              `[webhook] ${conversation.id.slice(0, 8)} AI queue drain ` +
+                `(claimed=${drained.claimed}, sent=${drained.sent}, requeued=${drained.requeued})`,
+            )
+          } catch (err) {
+            // The durable row remains pending/running and the cron will
+            // either claim it or recover its stale lease.
+            console.error('[webhook] best-effort AI queue drain failed:', err)
+          }
+        })
+      } else {
+        console.warn(
+          `[webhook] ${conversation.id.slice(0, 8)} AI queue returned no job`,
+        )
+      }
+    } catch (err) {
+      // Queueing failure must not suppress the public message.received
+      // webhook below or affect Meta's already-issued 200 response.
+      console.error('[webhook] failed to enqueue AI auto-reply:', err)
+    }
   } else {
+    try {
+      await invalidateAiReplyJob({
+        accountId,
+        conversationId: conversation.id,
+        inboundMessageId: message.id,
+      })
+    } catch (err) {
+      // Fail visibly but keep the public webhook delivery independent. The
+      // durable worker still re-checks eligibility before any send.
+      console.error('[webhook] failed to invalidate AI auto-reply job:', err)
+    }
     console.log(
       `[webhook] ${conversation.id.slice(0, 8)} AI auto-reply not attempted ` +
-        `(flowConsumed=${flowConsumed}, interactive=${!!interactiveReplyId}, hasText=${!!inboundText.trim()})`,
+        `(contentType=${contentType}, flowConsumed=${flowConsumed}, ` +
+        `interactive=${!!interactiveReplyId}, hasText=${!!inboundText.trim()}, ` +
+        `automationBlocked=${aiBlockedByAutomation})`,
     )
   }
 
@@ -1062,10 +1151,14 @@ async function findOrCreateConversation(
     .select('*')
     .eq('account_id', accountId)
     .eq('contact_id', contactId)
-    .single()
+    .maybeSingle()
 
   if (!findError && existing) {
     return { conversation: existing, created: false }
+  }
+  if (findError) {
+    console.error('Error finding conversation:', findError)
+    return null
   }
 
   // Create new conversation. Same tenancy + audit split as
@@ -1081,6 +1174,21 @@ async function findOrCreateConversation(
     .single()
 
   if (createError) {
+    // Migration 036 enforces one conversation per account/contact. If a
+    // concurrent first delivery inserted it after our lookup, resolve that
+    // winner and continue instead of dropping this inbound or creating a
+    // second thread that would defeat wamid idempotency.
+    if (isUniqueViolation(createError)) {
+      const { data: raced, error: racedError } = await supabaseAdmin()
+        .from('conversations')
+        .select('*')
+        .eq('account_id', accountId)
+        .eq('contact_id', contactId)
+        .maybeSingle()
+      if (!racedError && raced) {
+        return { conversation: raced, created: false }
+      }
+    }
     console.error('Error creating conversation:', createError)
     return null
   }

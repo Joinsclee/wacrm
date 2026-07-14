@@ -1,6 +1,6 @@
-# Desplegar wacrm en EasyPanel (Docker)
+# Desplegar JoinsClee WaCrm en EasyPanel (Docker)
 
-Esta guía despliega wacrm como un contenedor Docker usando el `Dockerfile`
+Esta guía despliega JoinsClee WaCrm como un contenedor Docker usando el `Dockerfile`
 de la raíz del repo (Next.js 16 con `output: "standalone"`). Supabase sigue
 siendo un servicio externo; aquí solo desplegamos la app Next.js.
 
@@ -28,19 +28,19 @@ que estar presentes al construir, no solo al arrancar.
 
 ### Requeridas (la app no arranca sin ellas)
 
-| Variable | Cuándo se usa | Notas |
-|---|---|---|
-| `NEXT_PUBLIC_SUPABASE_URL` | **build** (se incrusta en el cliente) | URL del proyecto Supabase |
-| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | **build** (se incrusta en el cliente) | Anon key de Supabase |
-| `SUPABASE_SERVICE_ROLE_KEY` | runtime | Secreta. Salta RLS; solo server-side |
-| `ENCRYPTION_KEY` | runtime | 64 hex (32 bytes). `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"` |
-| `META_APP_SECRET` | runtime | Verifica la firma HMAC del webhook de Meta |
+| Variable                        | Cuándo se usa                         | Notas                                                                                         |
+| ------------------------------- | ------------------------------------- | --------------------------------------------------------------------------------------------- |
+| `NEXT_PUBLIC_SUPABASE_URL`      | **build** (se incrusta en el cliente) | URL del proyecto Supabase                                                                     |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | **build** (se incrusta en el cliente) | Anon key de Supabase                                                                          |
+| `SUPABASE_SERVICE_ROLE_KEY`     | runtime                               | Secreta. Salta RLS; solo server-side                                                          |
+| `ENCRYPTION_KEY`                | runtime                               | 64 hex (32 bytes). `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"` |
+| `META_APP_SECRET`               | runtime                               | Verifica la firma HMAC del webhook de Meta                                                    |
 
 ### Recomendadas
 
-| Variable | Cuándo se usa | Notas |
-|---|---|---|
-| `NEXT_PUBLIC_SITE_URL` | **build** | URL pública canónica, sin `/` final. Ej.: `https://crm.tudominio.com` |
+| Variable               | Cuándo se usa | Notas                                                                 |
+| ---------------------- | ------------- | --------------------------------------------------------------------- |
+| `NEXT_PUBLIC_SITE_URL` | **build**     | URL pública canónica, sin `/` final. Ej.: `https://crm.tudominio.com` |
 
 > **Importante — las `NEXT_PUBLIC_*` son de tiempo de build.** Si cambias
 > `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY` o
@@ -49,15 +49,15 @@ que estar presentes al construir, no solo al arrancar.
 
 ### Opcionales (solo si usas la función)
 
-| Variable | Para qué |
-|---|---|
-| `AUTOMATION_CRON_SECRET` | Protege `GET /api/automations/cron` (pasos *Wait* en automatizaciones) |
-| `META_APP_ID` | Plantillas con header de imagen (Meta) |
-| `ALLOWED_INVITE_HOSTS` | Allow-list de hosts para links de invitación |
-| `WHATSAPP_TEMPLATES_DRY_RUN` | Dev/CI: no llama a Meta al crear plantillas |
-| `AI_REQUEST_TIMEOUT_MS`, `AI_CONTEXT_MESSAGE_LIMIT` | Ajustan el asistente de IA |
+| Variable                                            | Para qué                                                                    |
+| --------------------------------------------------- | --------------------------------------------------------------------------- |
+| `AUTOMATION_CRON_SECRET`                            | Protege los cron de automatizaciones, Flows y recuperación de respuestas IA |
+| `META_APP_ID`                                       | Plantillas con header de imagen (Meta)                                      |
+| `ALLOWED_INVITE_HOSTS`                              | Allow-list de hosts para links de invitación                                |
+| `WHATSAPP_TEMPLATES_DRY_RUN`                        | Dev/CI: no llama a Meta al crear plantillas                                 |
+| `AI_REQUEST_TIMEOUT_MS`, `AI_CONTEXT_MESSAGE_LIMIT` | Ajustan el asistente de IA                                                  |
 
-> El asistente de IA es *bring-your-own-key*: cada cuenta pega su propia
+> El asistente de IA es _bring-your-own-key_: cada cuenta pega su propia
 > clave de OpenAI/Anthropic en **Settings → AI Assistant** (se guarda cifrada
 > con `ENCRYPTION_KEY`). No hay variable global de proveedor.
 
@@ -65,7 +65,7 @@ que estar presentes al construir, no solo al arrancar.
 
 - El contenedor escucha en `$PORT` (por defecto **3000**; `HOSTNAME=0.0.0.0`
   viene fijado en el `Dockerfile` para que el proxy pueda alcanzarlo). Si
-  defines `PORT` en la pestaña *Environment*, el servidor standalone respeta
+  defines `PORT` en la pestaña _Environment_, el servidor standalone respeta
   ese valor — mira el log de arranque: `- Local: http://localhost:<PORT>`.
 - **El `Port` que apuntas en la pestaña Domains DEBE coincidir con ese
   `<PORT>`.** Si no coinciden, EasyPanel muestra "deploy correcto" pero el
@@ -79,28 +79,53 @@ que estar presentes al construir, no solo al arrancar.
 > fijo provoca un bucle de reinicios (Docker Swarm mata y reprograma la tarea)
 > si EasyPanel corre la app en otro `PORT` distinto al hardcodeado.
 
-## 4. Cron de automatizaciones (opcional)
+## 4. Tareas programadas por función
 
-Si usas pasos *Wait* en automatizaciones o flujos, necesitas un pinger que
-drene las ejecuciones pendientes. Define `AUTOMATION_CRON_SECRET` y crea un
-cron (en EasyPanel: **Scheduled Task**, o cualquier cron externo) que llame:
+Define `AUTOMATION_CRON_SECRET` y envíalo en el header `x-cron-secret` desde
+una **Scheduled Task** de EasyPanel o cualquier cron externo. Activa solamente
+los endpoints de las funciones que uses:
 
+| Endpoint                      | Frecuencia orientativa | Para qué sirve                                    |
+| ----------------------------- | ---------------------: | ------------------------------------------------- |
+| `GET /api/automations/cron`   |            cada minuto | Reanuda pasos _Wait_ pendientes                   |
+| `GET /api/flows/cron`         |      cada 5–60 minutos | Cierra ejecuciones de Flow abandonadas            |
+| `GET /api/ai/auto-reply/cron` |            cada minuto | Drena y recupera la cola durable de respuestas IA |
+
+Ejemplo para cualquiera de ellos:
+
+```bash
+curl --fail --silent --show-error \
+  -H "x-cron-secret: <AUTOMATION_CRON_SECRET>" \
+  https://crm.tudominio.com/api/ai/auto-reply/cron
 ```
-GET https://crm.tudominio.com/api/automations/cron
-Authorization: Bearer <AUTOMATION_CRON_SECRET>
-```
 
-Ver `docs/automations-and-cron.md` para el detalle.
+El webhook intenta drenar la cola IA inmediatamente después de su ventana de
+agrupación. El cron sigue siendo necesario para recuperar reinicios, límites
+de ejecución o trabajos cuyo bloqueo expiró. Las reclamaciones en Postgres
+hacen seguras las llamadas solapadas desde varias instancias.
 
 ## 5. Deploy
 
+Antes de publicar esta versión, aplica las migraciones `033` a `036` en orden
+y luego despliega el código. La cola IA y su cron dependen de las RPC de `034`;
+el código no debe recibir webhooks con la migración antigua.
+
+Las migraciones `033` y `036` se detienen deliberadamente si encuentran
+plantillas, conversaciones o `message_id` duplicados. Resuelve esos registros
+con criterio de negocio y vuelve a ejecutar; no elimines el diagnóstico ni
+fusiones filas automáticamente. Para una base con tráfico o tablas grandes,
+usa una ventana de mantenimiento breve: los índices únicos no son
+`CONCURRENTLY` porque las migraciones de Supabase se ejecutan dentro de una
+transacción.
+
 Pulsa **Deploy**. EasyPanel construye la imagen con el `Dockerfile`
-multi-stage y arranca el contenedor. El `HEALTHCHECK` del `Dockerfile`
-consulta `/login`; cuando pasa a *healthy*, el dominio ya sirve tráfico.
+multi-stage y arranca el contenedor. El `Dockerfile` no define un
+`HEALTHCHECK` fijo: verifica la disponibilidad desde el dominio que EasyPanel
+expone mediante su proxy HTTP.
 
 ## Notas de operación
 
-- **Instancia única.** wacrm usa el caché en disco por defecto de Next.js.
+- **Instancia única.** JoinsClee WaCrm usa el caché en disco por defecto de Next.js.
   Escálalo horizontalmente solo si añades un cache handler compartido y
   fijas `NEXT_SERVER_ACTIONS_ENCRYPTION_KEY` (ver
   `node_modules/next/dist/docs/01-app/02-guides/self-hosting.md`).

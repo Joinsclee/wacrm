@@ -10,13 +10,17 @@ import {
 import { buildMetaTemplatePayload } from '@/lib/whatsapp/template-components'
 import { ensureImageHeaderHandle } from '@/lib/whatsapp/template-header-handle'
 import { normalizeStatus } from '@/lib/whatsapp/template-status-normalize'
+import { hasMinRole, isAccountRole } from '@/lib/auth/roles'
 
-/**
- * Shared upsert payload builder — both the Meta-failure path and the
- * Meta-success path write nearly identical rows; dropping the shared
- * fields here means adding a column later only touches one spot.
- */
-function buildUpsertRow(
+interface ExistingTemplateRow {
+  id: string
+  user_id: string
+  status: string
+  meta_template_id: string | null
+}
+
+/** Shared persistence payload for both Meta success and safe draft failure. */
+function buildTemplateRow(
   accountId: string,
   userId: string,
   payload: TemplatePayload,
@@ -31,9 +35,9 @@ function buildUpsertRow(
     // of migration 017. Without this an INSERT throws on the
     // not-null constraint.
     account_id: accountId,
-    // Original author — kept as audit only. The unique index is
-    // still on (user_id, name, language) — see the upsert helper
-    // for the cross-teammate dedup follow-up.
+    // Original author — kept as audit only. Template identity is scoped to
+    // the account by (account_id, name, language), so teammates update the
+    // same local Meta template variant instead of shadowing one another.
     user_id: userId,
     name: payload.name,
     category: payload.category,
@@ -56,18 +60,27 @@ function buildUpsertRow(
   }
 }
 
-async function upsertTemplateRow(
+/**
+ * A retry may update only the exact local DRAFT inspected before the Meta
+ * call. New variants use INSERT so a concurrent conflict can never merge a
+ * failed submit over an APPROVED/PENDING template shared by the account.
+ */
+async function persistTemplateRow(
   supabase: SupabaseClient,
-  row: ReturnType<typeof buildUpsertRow>,
+  row: ReturnType<typeof buildTemplateRow>,
+  existing: ExistingTemplateRow | null,
 ) {
-  // TODO(account-sharing): conflict target is still scoped to
-  // user_id. Once a follow-up migration drops the legacy unique
-  // index on (user_id, name, language) and adds (account_id,
-  // name, language), switch `onConflict` here so two teammates
-  // can't shadow each other's same-named template.
+  if (!existing) {
+    return supabase.from('message_templates').insert(row).select().single()
+  }
+
   return supabase
     .from('message_templates')
-    .upsert(row, { onConflict: 'user_id,name,language' })
+    .update({ ...row, user_id: existing.user_id })
+    .eq('id', existing.id)
+    .eq('account_id', row.account_id)
+    .eq('status', 'DRAFT')
+    .is('meta_template_id', null)
     .select()
     .single()
 }
@@ -76,7 +89,7 @@ async function upsertTemplateRow(
  * Submit a template to Meta for approval AND persist it locally.
  *
  * Auth → fetch whatsapp_config → validate → (DRY_RUN short-circuit) →
- * POST to Meta → upsert local row by (user_id, name, language) with
+ * POST to Meta → insert a new row or update the inspected safe DRAFT with
  * status, meta_template_id, sample_values, last_submitted_at.
  *
  * When WHATSAPP_TEMPLATES_DRY_RUN=true, we skip the network call and
@@ -101,13 +114,22 @@ export async function POST(request: Request) {
     // message_templates row are account-scoped post-multi-user.
     const { data: profile } = await supabase
       .from('profiles')
-      .select('account_id')
+      .select('account_id, account_role')
       .eq('user_id', user.id)
       .maybeSingle()
     const accountId = profile?.account_id as string | undefined
     if (!accountId) {
       return NextResponse.json(
         { error: 'Your profile is not linked to an account.' },
+        { status: 403 },
+      )
+    }
+    if (
+      !isAccountRole(profile?.account_role) ||
+      !hasMinRole(profile.account_role, 'admin')
+    ) {
+      return NextResponse.json(
+        { error: 'This action requires the admin role or higher.' },
         { status: 403 },
       )
     }
@@ -135,6 +157,42 @@ export async function POST(request: Request) {
       return NextResponse.json(
         { error: e instanceof Error ? e.message : 'Validation failed.' },
         { status: 400 },
+      )
+    }
+
+    // Template identity is shared by the account. A valid Meta-linked row
+    // must go through the edit/resubmit lifecycle; treating another admin's
+    // create as an upsert could erase its Meta id and approval status when
+    // Meta rejects the duplicate name.
+    const { data: existingData, error: existingError } = await supabase
+      .from('message_templates')
+      .select('id,user_id,status,meta_template_id')
+      .eq('account_id', accountId)
+      .eq('name', payload.name)
+      .eq('language', payload.language)
+      .maybeSingle()
+
+    if (existingError) {
+      return NextResponse.json(
+        { error: `Could not check the existing template: ${existingError.message}` },
+        { status: 500 },
+      )
+    }
+
+    const existing = (existingData as ExistingTemplateRow | null) ?? null
+    const safeDraftRetry =
+      existing !== null &&
+      existing.meta_template_id === null &&
+      existing.status.toUpperCase() === 'DRAFT'
+
+    if (existing && !safeDraftRetry) {
+      return NextResponse.json(
+        {
+          error:
+            'A template with this name and language already exists in the account. Edit or sync that template instead of creating it again.',
+          existing_template_id: existing.id,
+        },
+        { status: 409 },
       )
     }
 
@@ -201,14 +259,21 @@ export async function POST(request: Request) {
         const message = e instanceof Error ? e.message : 'Meta submit failed.'
         // Persist the failure so the user can retry; row stays DRAFT
         // until they fix and re-submit.
-        await upsertTemplateRow(
+        const { error: persistError } = await persistTemplateRow(
           supabase,
-          buildUpsertRow(accountId, user.id, payload, {
+          buildTemplateRow(accountId, existing?.user_id ?? user.id, payload, {
             status: 'DRAFT',
             metaTemplateId: null,
             submissionError: message,
           }),
+          existing,
         )
+        if (persistError) {
+          console.error(
+            '[templates/submit] Meta failed and the safe local draft write also failed:',
+            persistError,
+          )
+        }
         const isRateLimit = /\b429\b/.test(message)
         return NextResponse.json(
           {
@@ -221,22 +286,23 @@ export async function POST(request: Request) {
       }
     }
 
-    const { data: row, error: upsertErr } = await upsertTemplateRow(
+    const { data: row, error: persistErr } = await persistTemplateRow(
       supabase,
-      buildUpsertRow(accountId, user.id, payload, {
+      buildTemplateRow(accountId, existing?.user_id ?? user.id, payload, {
         status: normalizeStatus(metaStatus),
         metaTemplateId,
         submissionError: null,
       }),
+      existing,
     )
 
-    if (upsertErr) {
+    if (persistErr) {
       // The submit succeeded on Meta's side but we failed to persist
       // locally. That's a data-drift state — surface the meta_template_id
       // so the user can recover via "Sync from Meta".
       return NextResponse.json(
         {
-          error: `Submitted to Meta but failed to save locally: ${upsertErr.message}. Run "Sync from Meta" to recover.`,
+          error: `Submitted to Meta but failed to save locally: ${persistErr.message}. Run "Sync from Meta" to recover.`,
           meta_template_id: metaTemplateId,
         },
         { status: 500 },

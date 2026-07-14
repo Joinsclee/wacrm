@@ -6,9 +6,18 @@ import {
   toNetworkError,
   type ProviderArgs,
 } from './shared'
+import { resolveInternalMockUrl } from '@/lib/dev-mocks/config'
 
-const ANTHROPIC_URL = 'https://api.anthropic.com/v1/messages'
+const DEFAULT_ANTHROPIC_BASE_URL = 'https://api.anthropic.com'
 const ANTHROPIC_VERSION = '2023-06-01'
+
+export function anthropicUrl(): string {
+  const base = resolveInternalMockUrl(
+    DEFAULT_ANTHROPIC_BASE_URL,
+    'INTERNAL_ANTHROPIC_BASE_URL',
+  )
+  return `${base}/v1/messages`
+}
 
 interface AnthropicResponse {
   content?: { type?: string; text?: string }[]
@@ -42,7 +51,7 @@ export async function generateAnthropic(args: ProviderArgs): Promise<string> {
 
   let res: Response
   try {
-    res = await fetch(ANTHROPIC_URL, {
+    res = await fetch(anthropicUrl(), {
       method: 'POST',
       headers: {
         'x-api-key': apiKey,

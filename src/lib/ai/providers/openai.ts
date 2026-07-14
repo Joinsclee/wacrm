@@ -6,8 +6,17 @@ import {
   toNetworkError,
   type ProviderArgs,
 } from './shared'
+import { resolveInternalMockUrl } from '@/lib/dev-mocks/config'
 
-const OPENAI_URL = 'https://api.openai.com/v1/chat/completions'
+const DEFAULT_OPENAI_BASE_URL = 'https://api.openai.com'
+
+export function openAiUrl(): string {
+  const base = resolveInternalMockUrl(
+    DEFAULT_OPENAI_BASE_URL,
+    'INTERNAL_OPENAI_BASE_URL',
+  )
+  return `${base}/v1/chat/completions`
+}
 
 interface OpenAiResponse {
   choices?: { message?: { content?: string } }[]
@@ -23,7 +32,7 @@ export async function generateOpenAi(args: ProviderArgs): Promise<string> {
 
   let res: Response
   try {
-    res = await fetch(OPENAI_URL, {
+    res = await fetch(openAiUrl(), {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${apiKey}`,
